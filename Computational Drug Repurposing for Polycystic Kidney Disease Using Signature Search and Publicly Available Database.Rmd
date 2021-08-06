@@ -1,0 +1,1251 @@
+---
+title: "Computational Drug Repurposing for Polycystic Kidney Disease Using signatureSearch and Publicly Available Data"
+author: "Hannah Cleary"
+date: "6/29/2021"
+output: 
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Abstract
+
+The United States Food and Drug Administration (FDA) drug development process demands, on average, approximately one billion dollars and around ten years to produce and approve of a novel drug treatment. Currently, only tolvaptan has been FDA-approved as a safe and acceptable treatment for Polycystic Kidney Disease (PKD). Tolvaptan, however, can potentially cause serious liver injury and additional adverse reactions. The purpose of this study was to identify previously FDA-approved drugs for repurposing for PKD by gene expression signature mapping between differentially expressed genes in mice with PKD compared to wildtype and gene expression drug databases. With DESeq2 the gene expression associated with PKD was identified from a publicly available dataset reporting on both wildtype and PKD2 knockout mice. Then with signatureSearch, an R package for matching gene expression to known drug signatures, the drug compounds that reversed this PKD gene expression pattern, including each kidney cell line (HA1E, NKDBA, HEK293T), were determined. The results of the DESeq2 data analysis revealed the upregulation of 33 genes and the downregulation of 83 genes (log2FoldChange > 2 or < -2, respectively) in PKD mouse kidney compared to wildtype. The signatureSearch analysis identified 325 drug compounds which matched the PKD associated gene expression pattern and 350 drug compounds which reversed the PKD associated gene expression pattern in the collective kidney cell lines. This study demonstrates the potential for data science approaches to identify and prioritize drug repurposing opportunities for further study in PKD.
+
+
+### Section Outline
+
+* Prep
+  + Load Packages
+* Raw Principal Component Analysis
+* DESeq2
+  + Load and Convert Raw Counts
+  + Load and Convert Metadata Table
+  + Verify Class and Data Type
+  + Insert Row Names into Data Frame
+  + Initiate DESeq2 Package
+  + Results
+* Ortholog Conversion
+* signatureSearch
+  + Signature Searches (GESS)
+    - LINCS Search Method
+      * Cell Line Filtering Information
+        + Kidney
+        + Adipose
+        + Blood
+        + Bone
+        + Breast
+        + Central Nervous System
+        + Hematopoietic and Lymphoid Tissue
+        + Large Intestine
+        + Liver
+        + Lung
+        + Muscle
+        + Nervous System
+        + Prostate
+        + Skin
+        + Normal
+        + Tumor
+      * Run Query on All Cell Lines Without Subsetting
+        - Filter by All Cell Lines
+        - Filter by All Kidney Cell Lines
+        - Filter by HA1E Kidney Cell Line
+        - Filter by HEK293T Kidney Cell Line
+        - Filter by NKDBA Kidney Cell Line
+        - Filter by Adipose Cell Line
+        - Filter by Blood Cell Line
+        - Filter by Bone Cell Line
+        - Filter by Breast Cell Lines
+        - Filter by Central Nervous System Cell Line
+        - Filter by Hematopoietic and Lymphoid Tissue Cell Lines
+        - Filter by Large Intestine Cell Line
+        - Filter by Liver Cell Lines
+        - Filter by Lung Cell Lines
+        - Filter by Muscle Cell Line
+        - Filter by Nervous Cell Lines
+        - Filter by Nervous System Cell Line
+        - Filter by Prostate Cell Lines
+        - Filter by Skin Cell Lines
+        - Filter by Normal Cell Lines
+        - Filter by Tumor Cell Lines
+    - CMAP Search Method
+      * Cell Line Filtering Information
+  + Functional Enrichment (FEA)
+    - With GO
+    - With KEGG
+    - With Reactome
+  + Drug-Target Network Visualization
+    - With GO
+    - With KEGG
+  
+## Prep
+
+### Load Packages
+```{r}
+library("plyr"); library("dplyr")
+# if functions are needed from both plyr and dplyr, then load plyr first, then dplyr
+library("devtools")
+# dependcies: ‘credentials’, ‘zip’, ‘gitcreds’, ‘ini’, ‘diffobj’, ‘gert’, ‘gh’, ‘whisker’,    
+# ‘xopen’, ‘brio’, ‘praise’, ‘waldo’, ‘usethis’, ‘desc’, ‘pkgbuild’, ‘pkgload’, ‘rcmdcheck’, 
+# ‘remotes’, ‘roxygen2’, ‘rversions’, ‘sessioninfo’, ‘testthat’
+library("ggbiplot")
+library(DESeq2)
+library(tibble)
+library(magrittr)
+library(dplyr)
+library(EnsDb.Hsapiens.v75)
+library(signatureSearch)
+library(ggplot2)
+```
+
+## Raw Principal Component Analysis
+```{r}
+#read tabular data into R {fixed_raw_counts_mouse.txt}
+pkdmice <- read.delim(file.choose())
+#first remember the names
+n <- pkdmice$GeneID
+#transpose all: to make columns into rows and rows into columns
+pkdmice <- as.data.frame(t(pkdmice))
+colnames(pkdmice) <- n
+```
+
+```{r}
+#remove first four rows of character values to generate numeric data frame
+pkdmice.numeric <- pkdmice[c(5:10),]
+#convert from data frame into numeric matrix 
+pkdmice.matrix <- apply(as.matrix(pkdmice.numeric),2,as.numeric)
+#remove columns with constant/zero column in order to rescale to unit variance
+#https://stackoverflow.com/questions/40315227/how-to-solve-prcomp-default-cannot-rescale-a-constant-zero-column-to-unit-var
+pkdmice.matrix.zerovariance <- pkdmice.matrix[ , which(apply(pkdmice.matrix, 2, var) != 0)]
+```
+
+```{r}
+#compute the principal components
+pkdmice.pca <- prcomp(pkdmice.matrix.zerovariance, center = TRUE, scale. = TRUE)
+```
+The center point ($center), scaling ($scale), standard deviation (sdev) of each principal component. The relationship (correlation or anticorrelation, etc) between the initial variables and the principal components ($rotation). The values of each sample in terms of the principal components ($x).
+
+```{r}
+#put samples into categories based on presence/absence of mutation in pkdmice.numeric 
+#first three rows are control and last three rows are PC2 mutants (Pkd2 Knockout)
+pkdmice.genetype <- c(rep("Wildtype",3), rep("Pkd2 Knockout",3))
+
+# ellipse = TRUE draws an ellipse around each group
+ggbiplot(pkdmice.pca,ellipse=TRUE, var.axes = FALSE, labels=rownames(pkdmice.numeric), groups=pkdmice.genetype) + xlab("Standardized PC1 (30.7% Explained Variance)") + ylab("Standardized PC2 (21.7% Explained Variance)") + ggtitle("Principal Component Analysis for \n  Wildtype and Pkd2 Knockout Mice Data") + theme(plot.title=element_text(face="bold", hjust=0.5, size=15), axis.title.x=element_text(face="bold"), axis.title.y=element_text(face="bold"), axis.title=element_text(size=10), legend.position="right") + labs(color="Sample Groups") + expand_limits(x = c(-2:2)) + scale_color_manual(name="Sample Groups", values=c("chartreuse4","orangered2"))
+```
+
+```{r}
+#save plot as pdf
+pdf('MousePKDPCA_Final')
+ggbiplot(pkdmice.pca,ellipse=TRUE, var.axes = FALSE, labels=rownames(pkdmice.numeric), groups=pkdmice.genetype) + xlab("Standardized PC1 (30.7% Explained Variance)") + ylab("Standardized PC2 (21.7% Explained Variance)") + ggtitle("Principal Component Analysis for \n  Wildtype and Pkd2 Knockout Mice Data") + theme(plot.title=element_text(face="bold", hjust=0.5, size=15), axis.title.x=element_text(face="bold"), axis.title.y=element_text(face="bold"), axis.title=element_text(size=10), legend.position="right") + labs(color="Sample Groups") + expand_limits(x = c(-2:2)) + scale_color_manual(name="Sample Groups", values=c("chartreuse4","orangered2"))
+dev.off()
+```
+
+## DESeq2
+### Load and Convert Raw Counts
+```{r}
+#read raw counts tabular data into R {fixed_raw_counts_mouse.txt}
+pkdmice <- read.delim(file.choose(), row.names="GeneID")
+#convert raw counts data frame into matrix
+pkdcounts <- as.matrix(pkdmice)
+#remove character and double mutant columns from data matrix (col. 1-3, 10-12)
+pkdcts_small <- pkdcounts[,c(4:9)] #class(pkdcts_small[,1]) = character
+```
+
+### Load and Convert Metadata Table
+```{r}
+#read metadata into R (data separated by commas) {SRARunTable.txt}
+pkdmeta <- read.csv(file.choose(), row.names=1)
+#remove double mutant rows from metadata (row. 1-6)
+pkdmeta <- pkdmeta[c(1:6),]
+#remove all columns from metadata excpet "Genotype" (col. 14)
+pkdmeta <- pkdmeta["Genotype"] #class(pkdmeta) = data.frame
+pkdmeta$Genotype <- factor(pkdmeta$Genotype)
+```
+
+### Verify Class and Data Type
+```{r}
+#convert pkdcts_small to contain numeric columns
+pkdcts_small_numeric <- apply(pkdcts_small,2,as.numeric) #class(pkdcts_small_numeric[,1]) = numeric
+```
+
+### Insert Row Names into Data Frame
+```{r}
+#import raw counts again but without row.names argument {fixed_raw_counts_mouse.txt}
+pkdmice123 <- read.delim(file.choose())
+#save Gene IDs to a vector
+GeneID <- pkdmice123$GeneID
+#insert row names into numeric object (pkdcts_small_numeric)
+rownames(pkdcts_small_numeric) <- GeneID
+```
+
+### Initiate DESeq2 Package
+```{r}
+pkd_small_dds <- DESeqDataSetFromMatrix(countData = pkdcts_small_numeric,
+                              colData = pkdmeta,
+                              design = ~ Genotype)
+#view object
+pkd_small_dds
+```
+
+The pkd_small_dds is an object created from the DESeqDataSetFromMatrix function. The pkd_small_dds object will be the input for the view results function. The next steps are to perform the default analysis and then list the coefficients.
+```{r}
+#perform default analysis
+pkd_small_dds <- DESeq(pkd_small_dds)
+#list the coefficients
+resultsNames(pkd_small_dds)
+```
+
+### Results
+```{r}
+pkd_small_result <- results(pkd_small_dds, contrast=c("Genotype", "Wild type", "Pkd2fl/fl;Pax8rtTA;TetO-cre"))
+#visualization of results
+plotMA(pkd_small_result, ylim=c(-2,2))
+#class(pkd_small_result) = DESeqResults
+```
+
+```{r, Mouse_DESeq2_PCA}
+#apply variance stabilization transformation using the pkd_small_dds object as the input
+pkd_small_dds_vsd <- vst(pkd_small_dds, blind = FALSE)
+#use pkd_small_dds_vsd as the input to plot PCA using the plotPCA function provided by DESeq2 package
+pkdmouse_deseq2_pca <- DESeq2::plotPCA(pkd_small_dds_vsd, intgroup = "Genotype", )
+#view
+pkdmouse_deseq2_pca
+```
+
+First, the DESeqResults object is converted to a matrix as a matrix is the proper input for the next step which is to remove the ENSEMBL versions. The ENSEMBL version IDs must be removed because genes must not have versions before either converting to human orthologs or running through signatureSearch package. The newly made matrix output is the input for removing the ENSEMBL versions. The modified matrix is converted into a data frame with row names indicated as ENSEMBL. This is required to convert from mouse to human genes. The final step is to remove rows with only NA input values. 
+
+```{r}
+#first step
+pkd_small_results_matrix <- as.matrix(pkd_small_result)
+rownames(pkd_small_results_matrix) <- sub("\\..*", "", rownames(pkd_small_results_matrix))
+#second step
+pkd_small_result_df <- pkd_small_results_matrix %>% as.data.frame() %>% rownames_to_column(., "ENSEMBL")
+#class(pkd_small_result_df) = data.frame
+#third step: remove rows with only NA input values
+pkd_small_result_df_na <- pkd_small_result_df[!is.na(pkd_small_result_df$log2FoldChange),]
+#class(pkd_small_result_df_na) = data.frame
+```
+
+The following code is designed to convert mouse DESeq2 results into orthologous human genes, determine which genes are up-regulated or down-regulated in the human genome (determine differential expression pattern), and test genes within signatureSearch's lincs and cmap methods and reference databases.
+
+## Ortholog Conversion
+```{r}
+#read in all ensembl mouse genes and their human orthologous genes
+orthos <- read.csv(file.choose(), na.strings=c("","NA")) #file.choose(mart_export.txt)
+#rename columns
+orthos <- dplyr::rename(orthos, ENSEMBL = Gene.stable.ID, Mouse_Gene = Gene.name, Human_Gene = Human.gene.name, Human_ENSEMBL = Human.gene.stable.ID)
+#use left join to pull all gene orthologs from orthos object that match genes in DESeq2 results
+pkd_gene_matches <- left_join(pkd_small_result_df_na, orthos, by = "ENSEMBL")
+#filter only for genes that have human orthologs and no NA's for L2FC and padj
+pkd_orthos <- dplyr::filter(pkd_gene_matches, !is.na(Human_ENSEMBL))
+pkd_orthos <- pkd_gene_matches[!is.na(pkd_gene_matches$log2FoldChange) & !is.na(pkd_gene_matches$Human_ENSEMBL) & !is.na(pkd_gene_matches$padj),]
+```
+
+## signatureSearch
+### Signature Searches (GESS)
+```{r}
+##read in pkd_orthos
+#determine which genes are up-regulated or down-regulated in the human genome (determine differential expression pattern)
+pkd_UP <- pkd_orthos[pkd_orthos$log2FoldChange > 2 & pkd_orthos$padj < 0.05,]
+pkd_DOWN <- pkd_orthos[pkd_orthos$log2FoldChange < -2 & pkd_orthos$padj < 0.05,]
+```
+
+```{r}
+#subset gene lists with only desired columns for poster figure (includes human gene name, log2FoldChange, padj)
+##pkd_poster_UP <- pkd_UP[c(3,7,9)]
+##pkd_poster_DOWN <- pkd_DOWN[c(3,7,9)]
+
+#to save time for now, additional objects were made in order to easily copy and paste the data into an Excel file
+##pkd_poster_UP_Excel <- pkd_poster_UP[c(1,2)]
+##pkd_poster_DOWN_Excel <- pkd_poster_DOWN[c(1,2)]
+
+#save Human_Gene to a vector; the immediately proceeding lines of code would only be ran if making the table in R
+#the purpose of the immediately proceeding code lines was to attempt to rename the first column as the Human_Genes
+##HumanGenesUP <- pkd_poster_UP$Human_Gene
+##HumanGenesDOWN <- pkd_poster_DOWN$Human_Gene
+```
+
+```{r}
+#convert human orthologs from ensembl to entrez for qsig input (returns a list of genes converted to entrez)
+pkd_conv_UP <- mapIds(EnsDb.Hsapiens.v75, keys = pkd_UP$Human_ENSEMBL, column="ENTREZID", keytype="GENEID", multiVals="first")
+pkd_conv_DOWN <- mapIds(EnsDb.Hsapiens.v75, keys = pkd_DOWN$Human_ENSEMBL, column="ENTREZID", keytype="GENEID", multiVals="first")
+```
+
+#### LINCS Search Method
+```{r}
+#run query for signatures
+qsig_lincs <- qSig(query = list(upset=as.character(pkd_conv_UP), downset=as.character(pkd_conv_DOWN)), gess_method="LINCS", refdb="lincs")
+```
+
+```{r}
+lincs_table <- gess_lincs(qSig= qsig_lincs, sortby="NCS", tau=TRUE)
+#top 50 results
+result(lincs_table)[1:50,]
+lincs_res_table <- result(lincs_table)
+head(lincs_res_table)
+#write.csv(lincs_res_table, "Full_LINCS_Table.csv")
+
+#From Vignette: "The similarity scores stored in the LINCS result table are summarized here. WTCS: Weighted Connectivity Score; WTCS_Pval: nominal p-value of WTCS; WTCS_FDR: false discovery rate of WTCS_Pval; NCS: normalized connectivity score; NCSct: NCS summarized across cell types; Tau: enrichment score standardized for a given database. The latter is only included in the result table if tau=TRUE in a gess_lincs function call. The example given is run with tau=FALSE, because the tau values are only meaningful when the complete LINCS database is used which is not the case for the toy database."
+```
+
+```{r}
+#find top 20 drugs from lincs method
+lincs_drugs_top20 <- c(unique(lincs_res_table$pert)[1:20])
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+full_results <- gess_res_vis(lincs_res_table, drugs = lincs_drugs_top20, col = "NCS")
+ggplot(full_results[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90))
+```
+
+##### Cell Line Filtering Information
+(A375) | Skin 1968 | Malignant Melanoma
+(A549) | Lung 4920 | Non Small Cell Lung Cancer, Carcinoma
+(ASC) | Adipose 2345 | Normal Primary Adipocyte Stem Cells
+(BT20) | Breast 175 | Carcinoma
+(CD34) | Bone 39 | Bone Marrow
+(FIBRNPC) | Skin 597 | Unknown
+(HA1E) | Kidney 2241 | Normal Kidney
+(HCC515) | Lung 1608 | Carcinoma
+(HEK293T) | Kidney 29 | Embryonal Kidney
+(HEPG2) | Liver 222 | Hepatocellular Carcinoma
+(HL60) | Hematopoietic and Lymphoid Tissue 40 | Acute Myelogenous Leukemia (AML), M3 (Promyelocytic)
+(HS578T) | Breast 171 | Carcinoma
+(HT29) | Large Intestine 1607 | Colorectal Adenocarcinoma
+(HUH7) | Liver 114 | Hepatocellular Carcinoma
+(JURKAT) | Hematopoietic and Lymphoid Tissue 30 | Acute Lymphoblastic Leukemia (ALL), T-Cell
+(MCF10A) | Breast 174 | Epithelial
+(MCF7) | Breast 6231 | Adenocarcinoma
+(MDAMB321) | Breast 174 | Adenocarcinoma
+(NEU) | Nervous System 2475 | Unknown
+(NKDBA) | Kidney 229 | Kidney Epithelial
+(NOMO1) | Hematopoietic and Lymphoid Tissue 18 | Acute Myeloid Leukemia (AML)
+(NPC) | Central Nervous System 3328 | Normal Stem Fibroblast-Derived iPScs
+(PC3) | Prostate 6724 | Adenocarcinoma
+(PHH) | Liver 1778 | Normal Primary Liver
+(SKB) | Muscle 2338 | Myoblast
+(SKBR3) | Breast 169 | Adenocarcinoma
+(THP1) | Hematopoietic and Lymphoid Tissue 19 | Acute Myelogenous Leukemia, M5 (Monocytic)
+(U266) | Blood 28 | Myeloman, Haematopoietic, Lymphoid
+(U937) | Hematopoeitic and Lymphoid Tissue 39 | Lymphoma, B-Cell, Non-Hodgkin's, Histiocytic 
+(VCAP) | Prostate 6126 | Carcinoma
+
+###### Kidney
+(HA1E) | Kidney 2241 | Normal Kidney
+(HEK293T) | Kidney 29 | Embryonal Kidney
+(NKDBA) | Kidney 229 | Kidney Epithelial
+###### Adipose
+(ASC) | Adipose 2345 | Normal Primary Adipocyte Stem Cells
+###### Blood
+(U266) | Blood 28 | Myeloman, Haematopoietic, Lymphoid
+###### Bone
+(CD34) | Bone 39 | Bone Marrow
+###### Breast
+(BT20) | Breast 175 | Carcinoma
+(HS578T) | Breast 171 | Carcinoma
+(MCF10A) | Breast 174 | Epithelial
+(MCF7) | Breast 6231 | Adenocarcinoma
+(MDAMB321) | Breast 174 | Adenocarcinoma
+(SKBR3) | Breast 169 | Adenocarcinoma
+###### Central Nervous System
+(NPC) | Central Nervous System 3328 | Normal Stem Fibroblast-Derived iPScs
+###### Hematopoietic and Lymphoid Tissue
+(HL60) | Hematopoietic and Lymphoid Tissue 40 | Acute Myelogenous Leukemia (AML), M3 (Promyelocytic)
+(JURKAT) | Hematopoietic and Lymphoid Tissue 30 | Acute Lymphoblastic Leukemia (ALL), T-Cell
+(NOMO1) | Hematopoietic and Lymphoid Tissue 18 | Acute Myeloid Leukemia (AML)
+(THP1) | Hematopoietic and Lymphoid Tissue 19 | Acute Myelogenous Leukemia, M5 (Monocytic)
+(U937) | Hematopoietic and Lymphoid Tissue 39 | Lymphoma, B-Cell, Non-Hodgkin's, Histiocytic 
+###### Large Intestine
+(HT29) | Large Intestine 1607 | Colorectal Adenocarcinoma
+###### Liver
+(HEPG2) | Liver 222 | Hepatocellular Carcinoma
+(HUH7) | Liver 114 | Hepatocellular Carcinoma
+(PHH) | Liver 1778 | Normal Primary Liver
+###### Lung
+(A549) | Lung 4920 | Non Small Cell Lung Cancer, Carcinoma
+(HCC515) | Lung 1608 | Carcinoma
+###### Muscle
+(SKB) | Muscle 2338 | Myoblast
+###### Nervous
+(NEU) | Nervous System 2475 | Unknown
+(NPC) | Central Nervous System 3328 | Normal Stem Fibroblast-Derived iPScs
+###### Nervous System
+(NEU) | Nervous System 2475 | Unknown
+###### Prostate
+(PC3) | Prostate 6724 | Adenocarcinoma
+(VCAP) | Prostate 6126 | Carcinoma
+###### Skin
+(A375) | Skin 1968 | Malignant Melanoma
+(FIBRNPC) | Skin 597 | Unknown
+###### Normal
+(ASC) | Adipose 2345 | Normal Primary Adipocyte Stem Cells
+(CD34) | Bone 39 | Bone Marrow
+(FIBRNPC) | Skin 597 | Unknown
+(HA1E) | Kidney 2241 | Normal Kidney
+(HCC515) | Lung 1608 | Carcinoma
+(HEK293T) | Kidney 29 | Embryonal Kidney
+(MCF10A) | Breast 174 | Epithelial
+(NEU) | Nervous System 2475 | Unknown
+(NKDBA) | Kidney 229 | Epithelial
+(NPC) | Central Nervous System 3328 | Normal Stem Fibroblast-Derived iPScs
+(PHH) | Liver 1778 | Normal Primary Liver
+(SKB) | Muscle 2338 | Skeletal Myoblast
+###### Tumor
+(A375) | Skin 1968 | Malignant Melanoma
+(A549) | Lung 4920 | Non Small Cell Lung Cancer, Carcinoma
+(BT20) | Breast 175 | Carcinoma
+(HEPG2) | Liver 222 | Hepatocellular Carcinoma
+(HL60) | Hematopoietic and Lymphoid Tissue 40 | Acute Myelogenous Leukemia (AML), M3 (Promyelocytic)
+(HS578T) | Breast 171 | Carcinoma
+(HT29) | Large Intestine 1607 | Colorectal Adenocarcinoma
+(HUH7) | Liver 114 | Hepatocellular Carcinoma
+(JURKAT) | Hematopoietic and Lymphoid Tissue 30 | Acute Lymphoblastic Leukemia (ALL), T-Cell
+(MCF7) | Breast 6231 | Adenocarcinoma
+(MDAMB321) | Breast 174 | Adenocarcinoma
+(NOMO1) | Hematopoietic and Lymphoid Tissue 18 | Acute Myeloid Leukemia (AML)
+(PC3) | Prostate 6724 | Adenocarcinoma
+(SKBR3) | Breast 169 | Adenocarcinoma
+(THP1) | Hematopoietic and Lymphoid Tissue 19 | Acute Myelogenous Leukemia, M5 (Monocytic)
+(U266) | Blood 28 | Myeloman, Haematopoietic, Lymphoid
+(U937) | Hematopoeitic and Lymphoid Tissue 39 | Lymphoma, B-Cell, Non-Hodgkin's, Histiocytic 
+(VCAP) | Prostate 6126 | Carcinoma
+
+##### Run Query on All Cell Lines Without Subsetting
+```{r}
+#run query for signatures
+qsig_full <- qSig(query = list(upset=as.character(pkd_conv_UP), downset=as.character(pkd_conv_DOWN)),
+                               gess_method="LINCS", refdb="lincs")
+#all results (includes all cell lines)
+fullresults <- gess_lincs(qSig=qsig_full, sortby="NCS", tau=TRUE)
+fulltable <- result(fullresults) #class(fulltable) = data.frame
+```
+
+###### Filter by All Cell Lines
+```{r}
+#filter for normalized connectivity scores less than or equal to -1 in all cell lines
+allcelllines_NCS <- dplyr::filter(fulltable, NCS <= -1) #6248
+#find top 70 reverse drugs from lincs method for all cell lines
+allcelllines_top70reversedrugs <- c(unique(allcelllines_NCS$pert)[1:70]) #3738
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+allcelllinesobject <- gess_res_vis(allcelllines_NCS, drugs = allcelllines_top70reversedrugs, col = "NCS")
+#view gess_res_vis object as ggplot
+ggplot(allcelllinesobject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top 70 signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in All Cell Lines") + labs(color="Cell Line", shape="Cell Type")
+```
+
+```{r}
+#find top 70 match drugs from lincs method for all cell lines
+allcelllines_NCS_match <- dplyr::filter(fulltable, NCS >= 1) #6165
+#find top 70 match drugs from lincs method for all cell lines
+allcelllines_top70matchdrugs <- c(unique(allcelllines_NCS_match$pert)[1:70]) #3030
+#cmake gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+allcelllinesmatchobject <- gess_res_vis(allcelllines_NCS_match, drugs = allcelllines_top70matchdrugs, col = "NCS")
+#view gess_res_vis object as ggplot
+ggplot(allcelllinesmatchobject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top 70 signatureSearch Results for Drug Compounds Matching the PKD Gene Expression Profile in All Cell Lines") + labs(color="Cell Line", shape="Cell Type")
+```
+
+##### Filter by All Kidney Cell Lines
+```{r}
+#filter entire table of results and cell lines for the HA1E kidney cell line
+HA1EKidneyCellLine <- dplyr::filter(fulltable, cell == "HA1E") #2241
+#filter for normalized connectivity scores less than or equal to -1 in the HA1E kidney cell line; vector_length = 350
+HA1EKidneyCellLineNCS_350 <- dplyr::filter(HA1EKidneyCellLine, NCS <= -1)[1:350,] #318
+
+#filter entire table of results and cell lines for the NKDBA kidney cell line
+NKDBAKidneyCellLine <- dplyr::filter(fulltable, cell == "NKDBA") #229
+#filter for normalized connectivity scores less than or equal to -1 in the NKDBA kidney cell line; vector_length = 350
+NKDBAKidneyCellLineNCS_350 <- dplyr::filter(NKDBAKidneyCellLine, NCS <= -1)[1:350,] #29
+
+#filter entire table of results and cell lines for the HEK293T kidney cell line
+HEK293TKidneyCellLine <- dplyr::filter(fulltable, cell == "HEK293T") #29
+#filter for normalized connectivity scores less than or equal to -1 in the HEK293T kidney cell line; vector_length = 350
+HEK293TKidneyCellLineNCS_350 <- dplyr::filter(HEK293TKidneyCellLine, NCS <= -1)[1:350,] #3
+
+#merge individual kidney cell line vectors into a single data frame
+TwoKidneyCellLines <- merge(HA1EKidneyCellLineNCS_350,NKDBAKidneyCellLineNCS_350,all=TRUE)
+AllKidneyCellLines <- merge(TwoKidneyCellLines,HEK293TKidneyCellLineNCS_350,all=TRUE)
+#remove all rows without any data from merged kidney cell line data frame
+AllKidneyCellLines <- AllKidneyCellLines[1:350,]
+#order data frame to be sorted by NCS values rather than in alphabetical order
+AllKidneyCellLines <- AllKidneyCellLines[order(AllKidneyCellLines$NCS),]
+#export unique compound drug list from AllKidneyCellLines data frame
+AllKidneyCellLinesDrugs <- c(unique(AllKidneyCellLines$pert))
+
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+AllKidneyCellLinesObject <- gess_res_vis(AllKidneyCellLines, drugs=AllKidneyCellLinesDrugs, col="NCS")
+#view gess_res_vis object as ggplot
+ggplot(AllKidneyCellLinesObject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in All Kidney Cell Lines") + labs(color="Cell Line", shape="Cell Type") + guides(shape=FALSE)
+```
+
+```{r}
+#find top 20 reverse drugs from lincs method for all kidney cell lines
+AllKidneyCellLinesDrugs20 <- c(unique(AllKidneyCellLines$pert)[1:20])
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+AllKidneyCellLinesObject20 <- gess_res_vis(AllKidneyCellLines, drugs=AllKidneyCellLinesDrugs20, col="NCS")
+#view gess_res_vis object as ggplot
+ggplot(AllKidneyCellLinesObject20[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=6) + theme(plot.title = element_text(face="bold", hjust = 0.5, size=20), axis.title.x = element_text(face="bold",size=18), axis.title.y = element_text(face="bold",size=18), plot.caption=element_text(hjust=0), axis.text=element_text(size=18)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top 20 signatureSearch Results for Drug Compounds Reversing \n the PKD Gene Expression Profile in All Kidney Cell Lines") + labs(color="Cell Line", shape="Cell Type",caption="The Normalized Connectivity Score (NCS) is a normalized value that permits the comparison of connectivity scores across cell types and \n perturbation types. A value of NCS less than zero indicates a drug signature that is known to reverse the examined gene expression pattern.") + guides(shape=FALSE) + coord_flip()
+
+# save plot as pdf
+pdf('Top 20 signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in All Kidney Cell Lines.pdf', width=10, height=15)
+ggplot(AllKidneyCellLinesObject20[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=6) + theme(plot.title = element_text(face="bold", hjust = 0.5, size=20), axis.title.x = element_text(face="bold",size=18), axis.title.y = element_text(face="bold",size=18), plot.caption=element_text(hjust=0), axis.text=element_text(size=18)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top 20 signatureSearch Results for Drug Compounds Reversing \n the PKD Gene Expression Profile in All Kidney Cell Lines") + labs(color="Cell Line", shape="Cell Type",caption="The Normalized Connectivity Score (NCS) is a normalized value that permits the comparison of connectivity scores across\ncell types and perturbation types. A value of NCS less than zero indicates a drug signature that is known to reverse the\nexamined gene expression pattern.") + guides(shape=FALSE) + coord_flip()
+dev.off()
+```
+
+```{r}
+#find top 70 reverse drugs from lincs method for all kidney cell lines
+AllKidneyCellLinesDrugs70 <- c(unique(AllKidneyCellLines$pert)[1:70])
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+AllKidneyCellLinesObject70 <- gess_res_vis(AllKidneyCellLines, drugs=AllKidneyCellLinesDrugs70, col="NCS")
+#view gess_res_vis object as ggplot
+ggplot(AllKidneyCellLinesObject70[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=4) + theme(plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10), plot.caption=element_text(hjust=0), legend.position="top") + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top 70 signatureSearch Results for Drug Compounds \n Reversing the PKD Gene Expression Profile in All Kidney Cell Lines") + labs(color="Cell Line", shape="Cell Type",caption="The Normalized Connectivity Score (NCS) is a normalized value that permits the comparison of connectivity scores across cell types and \n perturbation types. A value of NCS less than zero indicates a drug signature that is known to reverse the examined gene expression pattern.") + guides(shape=FALSE) + coord_flip() + scale_color_manual(name="Cell Line", values=c("orangered2","steelblue4","chartreuse4"))
+
+# save plot as pdf
+pdf('Top 70 signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in All Kidney Cell Lines.pdf', width=10, height=15)
+ggplot(AllKidneyCellLinesObject70[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=4) + theme(plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10), plot.caption=element_text(hjust=0), legend.position="top") + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top 70 signatureSearch Results for Drug Compounds \n Reversing the PKD Gene Expression Profile in All Kidney Cell Lines") + labs(color="Cell Line", shape="Cell Type",caption="The Normalized Connectivity Score (NCS) is a normalized value that permits the comparison of connectivity scores across cell types and \n perturbation types. A value of NCS less than zero indicates a drug signature that is known to reverse the examined gene expression pattern.") + guides(shape=FALSE) + coord_flip() + scale_color_manual(name="Cell Line", values=c("orangered2","steelblue4","chartreuse4"))
+dev.off()
+```
+
+##### Filter by HA1E Kidney Cell Line
+```{r}
+#filter entire table of results and cell lines for the HA1E kidney cell line
+HA1EKidneyCellLine <- dplyr::filter(fulltable, cell == "HA1E") #2241
+#filter for normalized connectivity scores less than or equal to -1 in the HA1E kidney cell line
+HA1EKidneyCellLineNCS <- dplyr::filter(HA1EKidneyCellLine, NCS <= -1) #318
+#find top 70 reverse drugs from lincs method for HA1E kidney cell line
+HA1EKidneyCellLine_Top70ReverseDrugs <- c(unique(HA1EKidneyCellLineNCS$pert)[1:70])
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+HA1EKidneyCellLineObject <- gess_res_vis(HA1EKidneyCellLineNCS, drugs = HA1EKidneyCellLine_Top70ReverseDrugs, col = "NCS")
+#view gess_res_vis object as ggplot
+ggplot(HA1EKidneyCellLineObject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top 70 signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in HA1E Kidney Cell Line") + labs(color="Cell Line", shape="Cell Type") + guides(shape=FALSE)
+```
+
+```{r}
+#filter for normalized connectivity scores greater than or equal to 1 in the HA1E kidney cell line
+HA1EKidneyCellLineNCS_Match <- dplyr::filter(HA1EKidneyCellLine, NCS >= 1)  #275
+```
+
+##### Filter by HEK293T Kidney Cell Line
+```{r}
+#filter entire table of results and cell lines for the HEK293T kidney cell line
+HEK293TKidneyCellLine <- dplyr::filter(fulltable, cell == "HEK293T") #29
+#filter for normalized connectivity scores less than or equal to -1 in the HEK293T kidney cell line
+HEK293TKidneyCellLineNCS <- dplyr::filter(HEK293TKidneyCellLine, NCS <= -1) #3
+#find top 70 reverse drugs from lincs method for HEK293T kidney cell line
+HEK293TKidneyCellLine_Top70ReverseDrugs <- c(unique(HEK293TKidneyCellLineNCS$pert)[1:70])
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+HEK293TKidneyCellLineObject <- gess_res_vis(HEK293TKidneyCellLineNCS, drugs = HEK293TKidneyCellLine_Top70ReverseDrugs, col = "NCS")
+#view gess_res_vis object as ggplot
+ggplot(HEK293TKidneyCellLineObject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top 70 signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in HEK293T Kidney Cell Line") + labs(color="Cell Line", shape="Cell Type") + guides(shape=FALSE)
+```
+
+```{r}
+#filter for normalized connectivity scores greater than or equal to 1 in the NKDBA kidney cell line
+HEK293TKidneyCellLineNCS_Match <- dplyr::filter(HEK293TKidneyCellLine, NCS >= 1) #6
+```
+
+##### Filter by NKDBA Kidney Cell Line
+```{r}
+#filter entire table of results and cell lines for the NKDBA kidney cell line
+NKDBAKidneyCellLine <- dplyr::filter(fulltable, cell == "NKDBA") #229
+#filter for normalized connectivity scores less than or equal to -1 in the NKDBA kidney cell line
+NKDBAKidneyCellLineNCS <- dplyr::filter(NKDBAKidneyCellLine, NCS <= -1) #29
+#find top 70 reverse drugs from lincs method for NKDBA kidney cell line
+NKDBAKidneyCellLine_Top70ReverseDrugs <- c(unique(NKDBAKidneyCellLineNCS$pert)[1:70])
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+NKDBAKidneyCellLineObject <- gess_res_vis(NKDBAKidneyCellLineNCS, drugs = NKDBAKidneyCellLine_Top70ReverseDrugs, col = "NCS")
+#view gess_res_vis object as ggplot
+ggplot(NKDBAKidneyCellLineObject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top 70 signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in NKDBA Kidney Cell Line") + labs(color="Cell Line", shape="Cell Type") + guides(shape=FALSE)
+```
+
+```{r}
+#filter for normalized connectivity scores greater than or equal to 1 in the NKDBA kidney cell line
+NKDBAKidneyCellLineNCS_Match <- dplyr::filter(NKDBAKidneyCellLine, NCS >= 1)  #44
+```
+
+##### Filter by Adipose Cell Line
+```{r}
+#filter entire table of results and cell lines for the ASC adipose cell line
+ASCAdiposeCellLine <- dplyr::filter(fulltable, cell == "ASC") #2345
+#filter for normalized connectivity scores less than or equal to -1 in the ASC adipose cell line
+ASCAdiposeCellLineNCS <- dplyr::filter(ASCAdiposeCellLine, NCS <= -1) #322
+#find top 70 reverse drugs from lincs method for ASC adipose cell line
+ASCAdiposeCellLine_Top70ReverseDrugs <- c(unique(ASCAdiposeCellLineNCS$pert)[1:70])
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+ASCAdiposeCellLineObject <- gess_res_vis(ASCAdiposeCellLineNCS, drugs = ASCAdiposeCellLine_Top70ReverseDrugs, col = "NCS")
+#view gess_res_vis object as ggplot
+ggplot(ASCAdiposeCellLineObject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top 70 signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in ASC Adipose Cell Line") + labs(color="Cell Line", shape="Cell Type") + guides(shape=FALSE)
+```
+
+##### Filter by Blood Cell Line
+```{r}
+#filter entire table of results and cell lines for the U266 blood cell line
+U266BloodCellLine <- dplyr::filter(fulltable, cell == "U266") #28
+#filter for normalized connectivity scores less than or equal to -1 in the U266 blood cell line
+U266BloodCellLineNCS <- dplyr::filter(U266BloodCellLine, NCS <= -1) #7
+#find top reverse drugs from lincs method for U266 blood cell line
+U266BloodCellLine_TopReverseDrugs <- c(unique(U266BloodCellLineNCS$pert))
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+U266BloodCellLineObject <- gess_res_vis(U266BloodCellLineNCS, drugs = U266BloodCellLine_TopReverseDrugs, col = "NCS")
+#view gess_res_vis object as ggplot
+ggplot(U266BloodCellLineObject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in U266 Blood Cell Line") + labs(color="Cell Line", shape="Cell Type") + guides(shape=FALSE)
+```
+
+##### Filter by Bone Cell Line
+```{r}
+#filter entire table of results and cell lines for the CD34 bone cell line
+CD34BoneCellLine <- dplyr::filter(fulltable, cell == "CD34") #39
+#filter for normalized connectivity scores less than or equal to -1 in the CD34 bone cell line
+CD34BoneCellLineNCS <- dplyr::filter(CD34BoneCellLine, NCS <= -1) #6
+#find top reverse drugs from lincs method for CD34 bone cell line
+CD34BoneCellLine_TopReverseDrugs <- c(unique(CD34BoneCellLineNCS$pert))
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+CD34BoneCellLineObject <- gess_res_vis(CD34BoneCellLineNCS, drugs = CD34BoneCellLine_TopReverseDrugs, col = "NCS")
+#view gess_res_vis object as ggplot
+ggplot(CD34BoneCellLineObject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in CD34 Bone Cell Line") + labs(color="Cell Line", shape="Cell Type") + guides(shape=FALSE)
+```
+
+##### Filter by Breast Cell Lines
+```{r}
+#filter entire table of results and cell lines for the BT20 breast cell line
+BT20BreastCellLine <- dplyr::filter(fulltable, cell == "BT20") #175
+#filter for normalized connectivity scores less than or equal to -1 in the BT20 breast cell line; vector_length = 1000
+BT20BreastCellLineNCS_1000 <- dplyr::filter(BT20BreastCellLine, NCS <= -1)[1:1000,] #15
+
+#filter entire table of results and cell lines for the HS578T breast cell line
+HS578TBreastCellLine <- dplyr::filter(fulltable, cell == "HS578T") #171
+#filter for normalized connectivity scores less than or equal to -1 in the HS578T breast cell line; vector_length = 1000
+HS578TBreastCellLineNCS_1000 <- dplyr::filter(HS578TBreastCellLine, NCS <= -1)[1:1000,] #32
+
+#filter entire table of results and cell lines for the MCF10A breast cell line
+MCF10ABreastCellLine <- dplyr::filter(fulltable, cell == "MCF10A") #174
+#filter for normalized connectivity scores less than or equal to -1 in the MCF10A breast cell line; vector_length = 1000
+MCF10ABreastCellLineNCS_1000 <- dplyr::filter(MCF10ABreastCellLine, NCS <= -1)[1:1000,] #16
+
+#filter entire table of results and cell lines for the MCF7 breast cell line
+MCF7BreastCellLine <- dplyr::filter(fulltable, cell == "MCF7") #6231
+#filter for normalized connectivity scores less than or equal to -1 in the MCF7 breast cell line; vector_length = 1000
+MCF7BreastCellLineNCS_1000 <- dplyr::filter(MCF7BreastCellLine, NCS <= -1)[1:1000,] #919
+
+#filter entire table of results and cell lines for the MDAMB231 breast cell line
+MDAMB231BreastCellLine <- dplyr::filter(fulltable, cell == "MDAMB231") #174
+#filter for normalized connectivity scores less than or equal to -1 in the MDAMB231 breast cell line; vector_length = 1000
+MDAMB231BreastCellLineNCS_1000 <- dplyr::filter(MDAMB231BreastCellLine, NCS <= -1)[1:1000,] #10
+
+#filter entire table of results and cell lines for the SKBR3 breast cell line
+SKBR3BreastCellLine <- dplyr::filter(fulltable, cell == "SKBR3") #169
+#filter for normalized connectivity scores less than or equal to -1 in the SKBR3 breast cell line; vector_length = 1000
+SKBR3BreastCellLineNCS_1000 <- dplyr::filter(SKBR3BreastCellLine, NCS <= -1)[1:1000,] #15
+
+#merge individual breast cell line vectors into a single data frame
+TwoBreastCellLines <- merge(BT20BreastCellLineNCS_1000,HS578TBreastCellLineNCS_1000,all=TRUE)
+#remove all rows without any data from merged breast cell line data frame
+TwoBreastCellLines <- TwoBreastCellLines[1:47,]
+#merge individual breast cell line vectors into a single data frame
+ThreeBreastCellLines <- merge(TwoBreastCellLines,MCF10ABreastCellLineNCS_1000,all=TRUE)
+#remove all rows without any data from merged breast cell line data frame
+ThreeBreastCellLines <- ThreeBreastCellLines[1:63,]
+#merge individual breast cell line vectors into a single data frame
+FourBreastCellLines <- merge(ThreeBreastCellLines,MCF7BreastCellLineNCS_1000,all=TRUE)
+#remove all rows without any data from merged breast cell line data frame
+FourBreastCellLines <- FourBreastCellLines[1:982,]
+#merge individual breast cell line vectors into a single data frame
+FiveBreastCellLines <- merge(FourBreastCellLines,MDAMB231BreastCellLineNCS_1000,all=TRUE)
+#remove all rows without any data from merged breast cell line data frame
+FiveBreastCellLines <- FiveBreastCellLines[1:992,]
+#merge individual breast cell line vectors into a single data frame
+AllBreastCellLines <- merge(FiveBreastCellLines,SKBR3BreastCellLineNCS_1000,all=TRUE)
+#remove all rows without any data from merged breast cell line data frame
+AllBreastCellLines <- AllBreastCellLines[1:1007,]
+
+#order data frame to be sorted by NCS values rather than in alphabetical order
+AllBreastCellLines <- AllBreastCellLines[order(AllBreastCellLines$NCS),]
+#export unique compound drug list from AllBreastCellLines data frame
+AllBreastCellLinesDrugs <- c(unique(AllBreastCellLines$pert))
+
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+AllBreastCellLinesObject <- gess_res_vis(AllBreastCellLines, drugs=AllBreastCellLinesDrugs, col="NCS")
+#view gess_res_vis object as ggplot
+ggplot(AllBreastCellLinesObject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in All Breast Cell Lines") + labs(color="Cell Line", shape="Cell Type")
+```
+
+##### Filter by Central Nervous System Cell Line
+```{r}
+#filter entire table of results and cell lines for the NPC central nervous system cell line
+NPCCentralNervousSystemCellLine <- dplyr::filter(fulltable, cell == "NPC") #3328
+#filter for normalized connectivity scores less than or equal to -1 in the NPC central nervous system cell line
+NPCCentralNervousSystemCellLineNCS <- dplyr::filter(NPCCentralNervousSystemCellLine, NCS <= -1) #454
+#find top 70 reverse drugs from lincs method for NPC central nervous system cell line
+NPCCentralNervousSystemCellLine_Top70ReverseDrugs <- c(unique(NPCCentralNervousSystemCellLineNCS$pert)[1:70])
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+NPCCentralNervousSystemCellLineObject <- gess_res_vis(NPCCentralNervousSystemCellLineNCS, drugs = NPCCentralNervousSystemCellLine_Top70ReverseDrugs, col = "NCS")
+#view gess_res_vis object as ggplot
+ggplot(NPCCentralNervousSystemCellLineObject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top 70 signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in NPC Central Nervous System Cell Line") + labs(color="Cell Line", shape="Cell Type") + guides(shape=FALSE)
+```
+
+##### Filter by Hematopoietic and Lymphoid Tissue Cell Lines
+```{r}
+#filter entire table of results and cell lines for the HL60 hematopoietic and lymphoid tissue cell line
+HL60HematopoieticAndLymphoidTissueCellLine <- dplyr::filter(fulltable, cell == "HL60") #40
+#filter for normalized connectivity scores less than or equal to -1 in the HL60 hematopoietic and lymphoid tissue cell line; vector_length = 40
+HL60HematopoieticAndLymphoidTissueCellLineNCS_40 <- dplyr::filter(HL60HematopoieticAndLymphoidTissueCellLine, NCS <= -1)[1:40,] #3
+
+#filter entire table of results and cell lines for the JURKAT hematopoietic and lymphoid tissue cell line
+JURKATHematopoieticAndLymphoidTissueCellLine <- dplyr::filter(fulltable, cell == "JURKAT") #30
+#filter for normalized connectivity scores less than or equal to -1 in the JURKAT hematopoietic and lymphoid tissue cell line; vector_length = 40
+JURKATHematopoieticAndLymphoidTissueCellLineNCS_40 <- dplyr::filter(JURKATHematopoieticAndLymphoidTissueCellLine, NCS <= -1)[1:40,] #2
+
+#filter entire table of results and cell lines for the NOMO1 hematopoietic and lymphoid tissue cell line
+NOMO1HematopoieticAndLymphoidTissueCellLine <- dplyr::filter(fulltable, cell == "NOMO1") #18
+#filter for normalized connectivity scores less than or equal to -1 in the NOMO1 hematopoietic and lymphoid tissue cell line; vector_length = 40
+NOMO1HematopoieticAndLymphoidTissueCellLineNCS_40 <- dplyr::filter(NOMO1HematopoieticAndLymphoidTissueCellLine, NCS <= -1)[1:40,] #2
+
+#filter entire table of results and cell lines for the THP1 hematopoietic and lymphoid tissue cell line
+THP1HematopoieticAndLymphoidTissueCellLine <- dplyr::filter(fulltable, cell == "THP1") #19
+#filter for normalized connectivity scores less than or equal to -1 in the THP1 hematopoietic and lymphoid tissue cell line; vector_length = 40
+THP1HematopoieticAndLymphoidTissueCellLineNCS_40 <- dplyr::filter(THP1HematopoieticAndLymphoidTissueCellLine, NCS <= -1)[1:40,] #4
+
+#filter entire table of results and cell lines for the U937 hematopoietic and lymphoid tissue cell line
+U937HematopoieticAndLymphoidTissueCellLine <- dplyr::filter(fulltable, cell == "U937") #39
+#filter for normalized connectivity scores less than or equal to -1 in the U937 hematopoietic and lymphoid tissue cell line; vector_length = 40
+U937HematopoieticAndLymphoidTissueCellLineNCS_40 <- dplyr::filter(U937HematopoieticAndLymphoidTissueCellLine, NCS <= -1)[1:40,] #6
+
+#merge individual hematopoietic and lymphoid tissue cell line vectors into a single data frame
+TwoHematopoieticAndLymphoidTissueCellLines <- merge(HL60HematopoieticAndLymphoidTissueCellLineNCS_40,JURKATHematopoieticAndLymphoidTissueCellLineNCS_40,all=TRUE)
+#merge individual hematopoietic and lymphoid tissue cell line vectors into a single data frame
+ThreeHematopoieticAndLymphoidTissueCellLines <- merge(TwoHematopoieticAndLymphoidTissueCellLines,NOMO1HematopoieticAndLymphoidTissueCellLineNCS_40,all=TRUE)
+#merge individual hematopoietic and lymphoid tissue cell line vectors into a single data frame
+FourHematopoieticAndLymphoidTissueCellLines <- merge(ThreeHematopoieticAndLymphoidTissueCellLines,THP1HematopoieticAndLymphoidTissueCellLineNCS_40,all=TRUE)
+#remove all rows without any data from merged hematopoietic and lymphoid tissue cell line data frame
+FourHematopoieticAndLymphoidTissueCellLines <- FourHematopoieticAndLymphoidTissueCellLines[1:11,]
+#merge individual hematopoietic and lymphoid tissue cell line vectors into a single data frame
+AllHematopoieticAndLymphoidTissueCellLines <- merge(FourHematopoieticAndLymphoidTissueCellLines,U937HematopoieticAndLymphoidTissueCellLineNCS_40,all=TRUE)
+#remove all rows without any data from merged hematopoietic and lymphoid tissue cell line data frame
+AllHematopoieticAndLymphoidTissueCellLines <- AllHematopoieticAndLymphoidTissueCellLines[1:17,]
+
+#order data frame to be sorted by NCS values rather than in alphabetical order
+AllHematopoieticAndLymphoidTissueCellLines <- AllHematopoieticAndLymphoidTissueCellLines[order(AllHematopoieticAndLymphoidTissueCellLines$NCS),]
+#export unique compound drug list from AllHematopoieticAndLymphoidTissueCellLines data frame
+AllHematopoieticAndLymphoidTissueCellLinesDrugs <- c(unique(AllHematopoieticAndLymphoidTissueCellLines$pert))
+
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+AllHematopoieticAndLymphoidTissueCellLinesObject <- gess_res_vis(AllHematopoieticAndLymphoidTissueCellLines, drugs=AllHematopoieticAndLymphoidTissueCellLinesDrugs, col="NCS")
+#view gess_res_vis object as ggplot
+ggplot(AllHematopoieticAndLymphoidTissueCellLinesObject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in All Hematopoietic and Lymphoid Tissue Cell Lines") + labs(color="Cell Line", shape="Cell Type") 
+```
+
+##### Filter by Large Intestine Cell Line
+```{r}
+#filter entire table of results and cell lines for the HT29 colon cell line
+HT29ColonCellLine <- dplyr::filter(fulltable, cell == "HT29") #1607
+#filter for normalized connectivity scores less than or equal to -1 in the HT29 colon cell line
+HT29ColonCellLineNCS <- dplyr::filter(HT29ColonCellLine, NCS <= -1) #217
+#find top 70 reverse drugs from lincs method for HT29 colon cell line
+HT29ColonCellLine_Top70ReverseDrugs <- c(unique(HT29ColonCellLineNCS$pert)[1:70])
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+HT29ColonCellLineObject <- gess_res_vis(HT29ColonCellLineNCS, drugs = HT29ColonCellLine_Top70ReverseDrugs, col = "NCS")
+#view gess_res_vis object as ggplot
+ggplot(HT29ColonCellLineObject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top 70 signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in HT29 Colon Cell Line") + labs(color="Cell Line", shape="Cell Type")
+```
+
+##### Filter by Liver Cell Lines
+```{r}
+#filter entire table of results and cell lines for the HEPG2 liver cell line
+HEPG2LiverCellLine <- dplyr::filter(fulltable, cell == "HEPG2") #222
+#filter for normalized connectivity scores less than or equal to -1 in the HEPG2 liver cell line; vector_length = 150
+HEPG2LiverCellLineNCS_150 <- dplyr::filter(HEPG2LiverCellLine, NCS <= -1)[1:150,] #16
+
+#filter entire table of results and cell lines for the HUH7 liver cell line
+HUH7LiverCellLine <- dplyr::filter(fulltable, cell == "HUH7") #114
+#filter for normalized connectivity scores less than or equal to -1 in the HUH7 liver cell line; vector_length = 150
+HUH7LiverCellLineNCS_150 <- dplyr::filter(HUH7LiverCellLine, NCS <= -1)[1:150,] #8
+
+#filter entire table of results and cell lines for the NOMO1 liver cell line
+PHHLiverCellLine <- dplyr::filter(fulltable, cell == "PHH") #1778
+#filter for normalized connectivity scores less than or equal to -1 in the PHH liver cell line; vector_length = 150
+PHHLiverCellLineNCS_150 <- dplyr::filter(PHHLiverCellLine, NCS <= -1)[1:150,] #146
+
+#merge individual liver cell line vectors into a single data frame
+TwoLiverCellLines <- merge(HEPG2LiverCellLineNCS_150,HUH7LiverCellLineNCS_150,all=TRUE)
+#merge individual liver cell line vectors into a single data frame
+AllLiverCellLines <- merge(TwoLiverCellLines,PHHLiverCellLineNCS_150,all=TRUE)
+#remove all rows without any data from merged liver cell line data frame
+AllLiverCellLines <- AllLiverCellLines[1:170,]
+
+#order data frame to be sorted by NCS values rather than in alphabetical order
+AllLiverCellLines <- AllLiverCellLines[order(AllLiverCellLines$NCS),]
+#export unique compound drug list from AllLiverCellLines data frame
+AllLiverCellLinesDrugs <- c(unique(AllLiverCellLines$pert))
+
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+AllLiverCellLinesObject <- gess_res_vis(AllLiverCellLines, drugs=AllLiverCellLinesDrugs, col="NCS")
+#view gess_res_vis object as ggplot
+ggplot(AllLiverCellLinesObject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in All Liver Cell Lines") + labs(color="Cell Line", shape="Cell Type")
+```
+
+##### Filter by Lung Cell Lines
+```{r}
+#filter entire table of results and cell lines for the A549 lung cell line
+A549LungCellLine <- dplyr::filter(fulltable, cell == "A549") #4920
+#filter for normalized connectivity scores less than or equal to -1 in the A549 lung cell line; vector_length = 850
+A549LungCellLineNCS_850 <- dplyr::filter(A549LungCellLine, NCS <= -1)[1:850,] #847
+
+#filter entire table of results and cell lines for the HCC515 lung cell line
+HCC515LungCellLine <- dplyr::filter(fulltable, cell == "HCC515") #1608
+#filter for normalized connectivity scores less than or equal to -1 in the HCC515 lung cell line; vector_length = 850
+HCC515LungCellLineNCS_850 <- dplyr::filter(HCC515LungCellLine, NCS <= -1)[1:850,] #232
+
+#merge individual lung cell line vectors into a single data frame
+AllLungCellLines <- merge(A549LungCellLineNCS_850,HCC515LungCellLineNCS_850,all=TRUE)
+#remove all rows without any data from merged lung cell line data frame
+AllLungCellLines <- AllLungCellLines[1:1079,]
+#order data frame to be sorted by NCS values rather than in alphabetical order
+AllLungCellLines <- AllLungCellLines[order(AllLungCellLines$NCS),]
+#export unique compound drug list from AllLungCellLines data frame
+AllLungCellLinesDrugs <- c(unique(AllLungCellLines$pert))
+
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+AllLungCellLinesObject <- gess_res_vis(AllLungCellLines, drugs=AllLungCellLinesDrugs, col="NCS")
+#view gess_res_vis object as ggplot
+ggplot(AllLungCellLinesObject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in All Lung Cell Lines") + labs(color="Cell Line", shape="Cell Type")
+```
+
+##### Filter by Muscle Cell Line
+```{r}
+#filter entire table of results and cell lines for the SKB muscle cell line
+SKBMuscleCellLine <- dplyr::filter(fulltable, cell == "SKB") #2338
+#filter for normalized connectivity scores less than or equal to -1 in the SKB muscle cell line
+SKBMuscleCellLineNCS <- dplyr::filter(SKBMuscleCellLine, NCS <= -1) #246
+#find top 70 reverse drugs from lincs method for SKB muscle cell line
+SKBMuscleCellLine_Top70ReverseDrugs <- c(unique(SKBMuscleCellLineNCS$pert)[1:70])
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+SKBMuscleCellLineObject <- gess_res_vis(SKBMuscleCellLineNCS, drugs = SKBMuscleCellLine_Top70ReverseDrugs, col = "NCS")
+#view gess_res_vis object as ggplot
+ggplot(SKBMuscleCellLineObject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top 70 signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in SKB Muscle Cell Line") + labs(color="Cell Line", shape="Cell Type") + guides(shape=FALSE)
+```
+
+##### Filter by Nervous Cell Lines
+```{r}
+#filter entire table of results and cell lines for the NEU nervous cell line
+NEUNervousCellLine <- dplyr::filter(fulltable, cell == "NEU") #2475
+#filter for normalized connectivity scores less than or equal to -1 in the NEU nervous cell line; vector_length = 460
+NEUNervousCellLineNCS_460 <- dplyr::filter(NEUNervousCellLine, NCS <= -1)[1:460,] #242
+
+#filter entire table of results and cell lines for the NPC nervous cell line
+NPCNervousCellLine <- dplyr::filter(fulltable, cell == "NPC") #3328
+#filter for normalized connectivity scores less than or equal to -1 in the NPC nervous cell line; vector_length = 460
+NPCNervousCellLineNCS_460 <- dplyr::filter(NPCNervousCellLine, NCS <= -1)[1:460,] #454
+
+#merge individual nervous cell line vectors into a single data frame
+AllNervousCellLines <- merge(NEUNervousCellLineNCS_460,NPCNervousCellLineNCS_460,all=TRUE)
+#remove all rows without any data from merged nervous cell line data frame
+AllNervousCellLines <- AllNervousCellLines[1:696,]
+#order data frame to be sorted by NCS values rather than in alphabetical order
+AllNervousCellLines <- AllNervousCellLines[order(AllNervousCellLines$NCS),]
+#export unique compound drug list from AllNervousCellLines data frame
+AllNervousCellLinesDrugs <- c(unique(AllNervousCellLines$pert))
+
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+AllNervousCellLinesObject <- gess_res_vis(AllNervousCellLines, drugs=AllNervousCellLinesDrugs, col="NCS")
+#view gess_res_vis object as ggplot
+ggplot(AllNervousCellLinesObject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in All Nervous Cell Lines") + labs(color="Cell Line", shape="Cell Type") + guides(shape=FALSE)
+```
+
+##### Filter by Nervous System Cell Line
+```{r}
+#filter entire table of results and cell lines for the NEU nervous system cell line
+NEUNervousSystemCellLine <- dplyr::filter(fulltable, cell == "NEU") #2475
+#filter for normalized connectivity scores less than or equal to -1 in the NEU nervous system cell line
+NEUNervousSystemCellLineNCS <- dplyr::filter(NEUNervousSystemCellLine, NCS <= -1) #242
+#find top 70 reverse drugs from lincs method for NEU nervous system cell line
+NEUNervousSystemCellLine_Top70ReverseDrugs <- c(unique(NEUNervousSystemCellLineNCS$pert)[1:70])
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+NEUNervousSystemCellLineObject <- gess_res_vis(NEUNervousSystemCellLineNCS, drugs = NEUNervousSystemCellLine_Top70ReverseDrugs, col = "NCS")
+#view gess_res_vis object as ggplot
+ggplot(NEUNervousSystemCellLineObject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top 70 signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in NEU Nervous System Cell Line") + labs(color="Cell Line", shape="Cell Type") + guides(shape=FALSE)
+```
+
+##### Filter by Prostate Cell Lines
+```{r}
+#filter entire table of results and cell lines for the PC3 prostate cell line
+PC3ProstateCellLine <- dplyr::filter(fulltable, cell == "PC3") #6724
+#filter for normalized connectivity scores less than or equal to -1 in the PC3 prostate cell line; vector_length = 1100
+PC3ProstateCellLineNCS_1100 <- dplyr::filter(PC3ProstateCellLine, NCS <= -1)[1:1100,] #1037
+
+#filter entire table of results and cell lines for the VCAP prostate cell line
+VCAPProstateCellLine <- dplyr::filter(fulltable, cell == "VCAP") #6126
+#filter for normalized connectivity scores less than or equal to -1 in the VCAP prostate cell line; vector_length = 1100
+VCAPProstateCellLineNCS_1100 <- dplyr::filter(VCAPProstateCellLine, NCS <= -1)[1:1100,] #717
+
+#merge individual prostate cell line vectors into a single data frame
+AllProstateCellLines <- merge(PC3ProstateCellLineNCS_1100,VCAPProstateCellLineNCS_1100,all=TRUE)
+#remove all rows without any data from merged prostate cell line data frame
+AllProstateCellLines <- AllProstateCellLines[1:1754,]
+
+#order data frame to be sorted by NCS values rather than in alphabetical order
+AllProstateCellLines <- AllProstateCellLines[order(AllProstateCellLines$NCS),]
+#export unique compound drug list from AllProstateCellLines data frame
+AllProstateCellLinesDrugs <- c(unique(AllProstateCellLines$pert))
+
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+AllProstateCellLinesObject <- gess_res_vis(AllProstateCellLines, drugs=AllProstateCellLinesDrugs, col="NCS")
+#view gess_res_vis object as ggplot
+ggplot(AllProstateCellLinesObject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in All Prostate Cell Lines") + labs(color="Cell Line", shape="Cell Type")
+```
+
+##### Filter by Skin Cell Lines
+```{r}
+#filter entire table of results and cell lines for the A375 skin cell line
+A375SkinCellLine <- dplyr::filter(fulltable, cell == "A375") #1968
+#filter for normalized connectivity scores less than or equal to -1 in the A375 skin cell line; vector_length = 300
+A375SkinCellLineNCS_300 <- dplyr::filter(A375SkinCellLine, NCS <= -1)[1:300,] #285
+
+#filter entire table of results and cell lines for the FIBRNPC skin cell line
+FIBRNPCSkinCellLine <- dplyr::filter(fulltable, cell == "FIBRNPC") #597
+#filter for normalized connectivity scores less than or equal to -1 in the FIBRNPC skin cell line; vector_length = 300
+FIBRNPCSkinCellLineNCS_300 <- dplyr::filter(FIBRNPCSkinCellLine, NCS <= -1)[1:300,] #92
+
+#merge individual skin cell line vectors into a single data frame
+AllSkinCellLines <- merge(A375SkinCellLineNCS_300,FIBRNPCSkinCellLineNCS_300,all=TRUE)
+#remove all rows without any data from merged skin cell line data frame
+AllSkinCellLines <- AllSkinCellLines[1:377,]
+
+#order data frame to be sorted by NCS values rather than in alphabetical order
+AllSkinCellLines <- AllSkinCellLines[order(AllSkinCellLines$NCS),]
+#export unique compound drug list from AllSkinCellLines data frame
+AllSkinCellLinesDrugs <- c(unique(AllSkinCellLines$pert))
+
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+AllSkinCellLinesObject <- gess_res_vis(AllSkinCellLines, drugs=AllSkinCellLinesDrugs, col="NCS")
+#view gess_res_vis object as ggplot
+ggplot(AllSkinCellLinesObject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in All Skin Cell Lines") + labs(color="Cell Line", shape="Cell Type")
+```
+
+##### Filter by Normal Cell Lines
+```{r}
+#filter entire table of results and cell lines for the ASC normal cell line
+ASCNormalCellLine <- dplyr::filter(fulltable, cell == "ASC") #2345
+#filter for normalized connectivity scores less than or equal to -1 in the ASC normal cell line; vector_length = 460
+ASCNormalCellLineNCS_460 <- dplyr::filter(ASCNormalCellLine, NCS <= -1)[1:460,] #322
+
+#filter entire table of results and cell lines for the CD34 normal cell line
+CD34NormalCellLine <- dplyr::filter(fulltable, cell == "CD34") #39
+#filter for normalized connectivity scores less than or equal to -1 in the CD34 normal cell line; vector_length = 460
+CD34NormalCellLineNCS_460 <- dplyr::filter(CD34NormalCellLine, NCS <= -1)[1:460,] #6
+
+#filter entire table of results and cell lines for the FIBRNPC normal cell line
+FIBRNPCNormalCellLine <- dplyr::filter(fulltable, cell == "FIBRNPC") #597
+#filter for normalized connectivity scores less than or equal to -1 in the FIBRNPC normal cell line; vector_length = 460
+FIBRNPCNormalCellLineNCS_460 <- dplyr::filter(FIBRNPCNormalCellLine, NCS <= -1)[1:460,] #92
+
+#filter entire table of results and cell lines for the HA1E normal cell line
+HA1ENormalCellLine <- dplyr::filter(fulltable, cell == "HA1E") #2241
+#filter for normalized connectivity scores less than or equal to -1 in the HA1E normal cell line; vector_length = 460
+HA1ENormalCellLineNCS_460 <- dplyr::filter(HA1ENormalCellLine, NCS <= -1)[1:460,] #318
+
+#filter entire table of results and cell lines for the HCC515 normal cell line
+HCC515NormalCellLine <- dplyr::filter(fulltable, cell == "HCC515") #1608
+#filter for normalized connectivity scores less than or equal to -1 in the HCC515 normal cell line; vector_length = 460
+HCC515NormalCellLineNCS_460 <- dplyr::filter(HCC515NormalCellLine, NCS <= -1)[1:460,] #232
+
+#filter entire table of results and cell lines for the HEK293T normal cell line
+HEK293TNormalCellLine <- dplyr::filter(fulltable, cell == "HEK293T") #29
+#filter for normalized connectivity scores less than or equal to -1 in the HEK293T normal cell line; vector_length = 460
+HEK293TNormalCellLineNCS_460 <- dplyr::filter(HEK293TNormalCellLine, NCS <= -1)[1:460,] #3
+
+#filter entire table of results and cell lines for the MCF10A normal cell line
+MCF10ANormalCellLine <- dplyr::filter(fulltable, cell == "MCF10A") #174
+#filter for normalized connectivity scores less than or equal to -1 in the MCF10A normal cell line; vector_length = 460
+MCF10ANormalCellLineNCS_460 <- dplyr::filter(MCF10ANormalCellLine, NCS <= -1)[1:460,] #16
+
+#filter entire table of results and cell lines for the NEU normal cell line
+NEUNormalCellLine <- dplyr::filter(fulltable, cell == "NEU") #2475
+#filter for normalized connectivity scores less than or equal to -1 in the NEU normal cell line; vector_length = 460
+NEUNormalCellLineNCS_460 <- dplyr::filter(NEUNormalCellLine, NCS <= -1)[1:460,] #242
+
+#filter entire table of results and cell lines for the NKDBA normal cell line
+NKDBANormalCellLine <- dplyr::filter(fulltable, cell == "NKDBA") #229
+#filter for normalized connectivity scores less than or equal to -1 in the NKDBA normal cell line; vector_length = 460
+NKDBANormalCellLineNCS_460 <- dplyr::filter(NKDBANormalCellLine, NCS <= -1)[1:460,] #29
+
+#filter entire table of results and cell lines for the NPC normal cell line
+NPCNormalCellLine <- dplyr::filter(fulltable, cell == "NPC") #3328
+#filter for normalized connectivity scores less than or equal to -1 in the NPC normal cell line; vector_length = 460
+NPCNormalCellLineNCS_460 <- dplyr::filter(NPCNormalCellLine, NCS <= -1)[1:460,] #454
+
+#filter entire table of results and cell lines for the PHH normal cell line
+PHHNormalCellLine <- dplyr::filter(fulltable, cell == "PHH") #1778
+#filter for normalized connectivity scores less than or equal to -1 in the PHH normal cell line; vector_length = 460
+PHHNormalCellLineNCS_460 <- dplyr::filter(PHHNormalCellLine, NCS <= -1)[1:460,] #146
+
+#filter entire table of results and cell lines for the SKB normal cell line
+SKBNormalCellLine <- dplyr::filter(fulltable, cell == "SKB") #2338
+#filter for normalized connectivity scores less than or equal to -1 in the SKB normal cell line; vector_length = 460
+SKBNormalCellLineNCS_460 <- dplyr::filter(SKBNormalCellLine, NCS <= -1)[1:460,] #246
+```
+
+```{r}
+#merge individual normal cell line vectors into a single data frame
+TwoNormalCellLines <- merge(ASCNormalCellLineNCS_460,CD34NormalCellLineNCS_460,all=TRUE)
+ThreeNormalCellLines <- merge(TwoNormalCellLines,FIBRNPCNormalCellLineNCS_460,all=TRUE)
+#remove all rows without any data from merged normal cell line data frame
+ThreeNormalCellLines <- ThreeNormalCellLines[1:420,]
+#merge individual normal cell line vectors into a single data frame
+FourNormalCellLines <- merge(ThreeNormalCellLines,HA1ENormalCellLineNCS_460,all=TRUE)
+FiveNormalCellLines <- merge(FourNormalCellLines,HCC515NormalCellLineNCS_460,all=TRUE)
+SixNormalCellLines <- merge(FiveNormalCellLines,HEK293TNormalCellLineNCS_460,all=TRUE)
+#remove all rows without any data from merged normal cell line data frame
+SixNormalCellLines <- SixNormalCellLines[1:973,]
+#merge individual normal cell line vectors into a single data frame
+SevenNormalCellLines <- merge(SixNormalCellLines,MCF10ANormalCellLineNCS_460,all=TRUE)
+EightNormalCellLines <- merge(SevenNormalCellLines,NEUNormalCellLineNCS_460,all=TRUE)
+NineNormalCellLines <- merge(EightNormalCellLines,NKDBANormalCellLineNCS_460,all=TRUE)
+#remove all rows without any data from merged normal cell line data frame
+NineNormalCellLines <- NineNormalCellLines[1:1260,]
+#merge individual normal cell line vectors into a single data frame
+TenNormalCellLines <- merge(NineNormalCellLines,NPCNormalCellLineNCS_460,all=TRUE)
+ElevenNormalCellLines <- merge(TenNormalCellLines,PHHNormalCellLineNCS_460,all=TRUE)
+AllNormalCellLines <- merge(ElevenNormalCellLines,SKBNormalCellLineNCS_460,all=TRUE)
+#remove all rows without any data from merged normal cell line data frame
+AllNormalCellLines <- AllNormalCellLines[1:2106,]
+```
+
+```{r}
+#order data frame to be sorted by NCS values rather than in alphabetical order
+AllNormalCellLines <- AllNormalCellLines[order(AllNormalCellLines$NCS),]
+#export unique compound drug list from AllNormalCellLines data frame
+AllNormalCellLinesDrugs <- c(unique(AllNormalCellLines$pert))
+
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+AllNormalCellLinesObject <- gess_res_vis(AllNormalCellLines, drugs=AllNormalCellLinesDrugs, col="NCS")
+#view gess_res_vis object as ggplot
+ggplot(AllNormalCellLinesObject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in All Normal Cell Lines") + labs(color="Cell Line", shape="Cell Type") 
+```
+
+##### Filter by Tumor Cell Lines
+```{r}
+#filter entire table of results and cell lines for the A375 tumor cell line
+A375TumorCellLine <- dplyr::filter(fulltable, cell == "A375") #1968
+#filter for normalized connectivity scores less than or equal to -1 in the A375 tumor cell line; vector_length = 1050
+A375TumorCellLineNCS_1050 <- dplyr::filter(A375TumorCellLine, NCS <= -1)[1:1050,] #285
+
+#filter entire table of results and cell lines for the A549 tumor cell line
+A549TumorCellLine <- dplyr::filter(fulltable, cell == "A549") #4920
+#filter for normalized connectivity scores less than or equal to -1 in the A549 tumor cell line; vector_length = 1050
+A549TumorCellLineNCS_1050 <- dplyr::filter(A549TumorCellLine, NCS <= -1)[1:1050,] #847
+
+#filter entire table of results and cell lines for the BT20 tumor cell line
+BT20TumorCellLine <- dplyr::filter(fulltable, cell == "BT20") #175
+#filter for normalized connectivity scores less than or equal to -1 in the BT20 tumor cell line; vector_length = 1050
+BT20TumorCellLineNCS_1050 <- dplyr::filter(BT20TumorCellLine, NCS <= -1)[1:1050,] #15
+
+#filter entire table of results and cell lines for the HEPG2 tumor cell line
+HEPG2TumorCellLine <- dplyr::filter(fulltable, cell == "HEPG2") #222
+#filter for normalized connectivity scores less than or equal to -1 in the HEPG2 tumor cell line; vector_length = 1050
+HEPG2TumorCellLineNCS_1050 <- dplyr::filter(HEPG2TumorCellLine, NCS <= -1)[1:1050,] #16
+
+#filter entire table of results and cell lines for the HL60 tumor cell line
+HL60TumorCellLine <- dplyr::filter(fulltable, cell == "HL60") #40
+#filter for normalized connectivity scores less than or equal to -1 in the HL60 tumor cell line; vector_length = 1050
+HL60TumorCellLineNCS_1050 <- dplyr::filter(HL60TumorCellLine, NCS <= -1)[1:1050,] #3
+
+#filter entire table of results and cell lines for the HS578T tumor cell line
+HS578TTumorCellLine <- dplyr::filter(fulltable, cell == "HS578T") #171
+#filter for normalized connectivity scores less than or equal to -1 in the HS578T tumor cell line; vector_length = 1050
+HS578TTumorCellLineNCS_1050 <- dplyr::filter(HS578TTumorCellLine, NCS <= -1)[1:1050,] #32
+
+#filter entire table of results and cell lines for the HT29 tumor cell line
+HT29TumorCellLine <- dplyr::filter(fulltable, cell == "HT29") #1607
+#filter for normalized connectivity scores less than or equal to -1 in the HT29 tumor cell line; vector_length = 1050
+HT29TumorCellLineNCS_1050 <- dplyr::filter(HT29TumorCellLine, NCS <= -1)[1:1050,] #217
+
+#filter entire table of results and cell lines for the HUH7 tumor cell line
+HUH7TumorCellLine <- dplyr::filter(fulltable, cell == "HUH7") #114
+#filter for normalized connectivity scores less than or equal to -1 in the HUH7 tumor cell line; vector_length = 1050
+HUH7TumorCellLineNCS_1050 <- dplyr::filter(HUH7TumorCellLine, NCS <= -1)[1:1050,] #8
+
+#filter entire table of results and cell lines for the JURKAT tumor cell line
+JURKATTumorCellLine <- dplyr::filter(fulltable, cell == "JURKAT") #30
+#filter for normalized connectivity scores less than or equal to -1 in the JURKAT tumor cell line; vector_length = 1050
+JURKATTumorCellLineNCS_1050 <- dplyr::filter(JURKATTumorCellLine, NCS <= -1)[1:1050,] #2
+
+#filter entire table of results and cell lines for the MCF7 tumor cell line
+MCF7TumorCellLine <- dplyr::filter(fulltable, cell == "MCF7") #6231
+#filter for normalized connectivity scores less than or equal to -1 in the MCF7 tumor cell line; vector_length = 1050
+MCF7TumorCellLineNCS_1050 <- dplyr::filter(MCF7TumorCellLine, NCS <= -1)[1:1050,] #919
+
+#filter entire table of results and cell lines for the MDAMB231 tumor cell line
+MDAMB231TumorCellLine <- dplyr::filter(fulltable, cell == "MDAMB231") #174
+#filter for normalized connectivity scores less than or equal to -1 in the MDAMB231 tumor cell line; vector_length = 1050
+MDAMB231TumorCellLineNCS_1050 <- dplyr::filter(MDAMB231TumorCellLine, NCS <= -1)[1:1050,] #10
+
+#filter entire table of results and cell lines for the NOMO1 tumor cell line
+NOMO1TumorCellLine <- dplyr::filter(fulltable, cell == "NOMO1") #18
+#filter for normalized connectivity scores less than or equal to -1 in the NOMO1 tumor cell line; vector_length = 1050
+NOMO1TumorCellLineNCS_1050 <- dplyr::filter(NOMO1TumorCellLine, NCS <= -1)[1:1050,] #2
+
+#filter entire table of results and cell lines for the PC3 tumor cell line
+PC3TumorCellLine <- dplyr::filter(fulltable, cell == "PC3") #6724
+#filter for normalized connectivity scores less than or equal to -1 in the PC3 tumor cell line; vector_length = 1050
+PC3TumorCellLineNCS_1050 <- dplyr::filter(PC3TumorCellLine, NCS <= -1)[1:1050,] #1037
+
+#filter entire table of results and cell lines for the SKBR3 tumor cell line
+SKBR3TumorCellLine <- dplyr::filter(fulltable, cell == "SKBR3") #169
+#filter for normalized connectivity scores less than or equal to -1 in the SKBR3 tumor cell line; vector_length = 1050
+SKBR3TumorCellLineNCS_1050 <- dplyr::filter(SKBR3TumorCellLine, NCS <= -1)[1:1050,] #15
+
+#filter entire table of results and cell lines for the THP1 tumor cell line
+THP1TumorCellLine <- dplyr::filter(fulltable, cell == "THP1") #19
+#filter for normalized connectivity scores less than or equal to -1 in the THP1 tumor cell line; vector_length = 1050
+THP1TumorCellLineNCS_1050 <- dplyr::filter(THP1TumorCellLine, NCS <= -1)[1:1050,] #4
+
+#filter entire table of results and cell lines for the U266 tumor cell line
+U266TumorCellLine <- dplyr::filter(fulltable, cell == "U266") #28
+#filter for normalized connectivity scores less than or equal to -1 in the U266 tumor cell line; vector_length = 1050
+U266TumorCellLineNCS_1050 <- dplyr::filter(U266TumorCellLine, NCS <= -1)[1:1050,] #7
+
+#filter entire table of results and cell lines for the U937 tumor cell line
+U937TumorCellLine <- dplyr::filter(fulltable, cell == "U937") #39
+#filter for normalized connectivity scores less than or equal to -1 in the U937 tumor cell line; vector_length = 1050
+U937TumorCellLineNCS_1050 <- dplyr::filter(U937TumorCellLine, NCS <= -1)[1:1050,] #6
+
+#filter entire table of results and cell lines for the VCAP tumor cell line
+VCAPTumorCellLine <- dplyr::filter(fulltable, cell == "VCAP") #6126
+#filter for normalized connectivity scores less than or equal to -1 in the VCAP tumor cell line; vector_length = 1050
+VCAPTumorCellLineNCS_1050 <- dplyr::filter(VCAPTumorCellLine, NCS <= -1)[1:1050,] #717
+```
+
+```{r}
+#merge individual tumor cell line vectors into a single data frame
+TwoTumorCellLines <- merge(A375TumorCellLineNCS_1050,A549TumorCellLineNCS_1050,all=TRUE)
+#remove all rows without any data from merged tumor cell line data frame
+TwoTumorCellLines <- TwoTumorCellLines[1:1132,]
+#merge individual tumor cell line vectors into a single data frame
+ThreeTumorCellLines <- merge(TwoTumorCellLines,BT20TumorCellLineNCS_1050,all=TRUE)
+#remove all rows without any data from merged tumor cell line data frame
+ThreeTumorCellLines <- ThreeTumorCellLines[1:1147,]
+#merge individual tumor cell line vectors into a single data frame
+FourTumorCellLines <- merge(ThreeTumorCellLines,HEPG2TumorCellLineNCS_1050,all=TRUE)
+FiveTumorCellLines <- merge(FourTumorCellLines,HL60TumorCellLineNCS_1050,all=TRUE)
+#remove all rows without any data from merged tumor cell line data frame
+FiveTumorCellLines <- FiveTumorCellLines[1:1166,]
+#merge individual tumor cell line vectors into a single data frame
+SixTumorCellLines <- merge(FiveTumorCellLines,HS578TTumorCellLineNCS_1050,all=TRUE)
+SevenTumorCellLines <- merge(SixTumorCellLines,HT29TumorCellLineNCS_1050,all=TRUE)
+#remove all rows without any data from merged tumor cell line data frame
+SevenTumorCellLines <- SevenTumorCellLines[1:1415,]
+#merge individual tumor cell line vectors into a single data frame
+EightTumorCellLines <- merge(SevenTumorCellLines,HUH7TumorCellLineNCS_1050,all=TRUE)
+NineTumorCellLines <- merge(EightTumorCellLines,JURKATTumorCellLineNCS_1050,all=TRUE)
+#remove all rows without any data from merged tumor cell line data frame
+NineTumorCellLines <- NineTumorCellLines[1:1425,]
+#merge individual tumor cell line vectors into a single data frame
+TenTumorCellLines <- merge(NineTumorCellLines,MCF7TumorCellLineNCS_1050,all=TRUE)
+ElevenTumorCellLines <- merge(TenTumorCellLines,MDAMB231TumorCellLineNCS_1050,all=TRUE)
+#remove all rows without any data from merged tumor cell line data frame
+ElevenTumorCellLines <- ElevenTumorCellLines[1:2354,]
+#merge individual tumor cell line vectors into a single data frame
+TwelveTumorCellLines <- merge(ElevenTumorCellLines,NOMO1TumorCellLineNCS_1050,all=TRUE)
+ThirteenTumorCellLines <- merge(TwelveTumorCellLines,PC3TumorCellLineNCS_1050,all=TRUE)
+FourteenTumorCellLines <- merge(ThirteenTumorCellLines,SKBR3TumorCellLineNCS_1050,all=TRUE)
+#remove all rows without any data from merged tumor cell line data frame
+FourteenTumorCellLines <- FourteenTumorCellLines[1:3408,]
+#merge individual tumor cell line vectors into a single data frame
+FifteenTumorCellLines <- merge(FourteenTumorCellLines,THP1TumorCellLineNCS_1050,all=TRUE)
+SixteenTumorCellLines <- merge(FifteenTumorCellLines,U266TumorCellLineNCS_1050,all=TRUE)
+#remove all rows without any data from merged tumor cell line data frame
+SixteenTumorCellLines <- SixteenTumorCellLines[1:3419,]
+#merge individual tumor cell line vectors into a single data frame
+SeventeenTumorCellLines <- merge(SixteenTumorCellLines,U937TumorCellLineNCS_1050,all=TRUE)
+AllTumorCellLines <- merge(SeventeenTumorCellLines,VCAPTumorCellLineNCS_1050,all=TRUE)
+#remove all rows without any data from merged tumor cell line data frame
+AllTumorCellLines <- AllTumorCellLines[1:4142,]
+```
+
+```{r}
+#order data frame to be sorted by NCS values rather than in alphabetical order
+AllTumorCellLines <- AllTumorCellLines[order(AllTumorCellLines$NCS),]
+#export unique compound drug list from AllTumorCellLines data frame
+AllTumorCellLinesDrugs <- c(unique(AllTumorCellLines$pert))
+
+#make gess_res_vis into known object such that the color and shapes displayed will match cell lines and types without additional unknown markers
+AllTumorCellLinesObject <- gess_res_vis(AllTumorCellLines, drugs=AllTumorCellLinesDrugs, col="NCS")
+#view gess_res_vis object as ggplot
+ggplot(AllTumorCellLinesObject[["data"]], aes(x = pert, y = NCS, color = cell_type, shape = cell_class)) + geom_point(size=2.5) + theme(axis.text.x = element_text(angle=90), plot.title = element_text(face="bold", hjust = 0.5, size=15), axis.title.x = element_text(face="bold",size=10), axis.title.y = element_text(face="bold",size=10)) + xlab("Drug Compound") + ylab("Normalized Connectivity Score (NCS)") + ggtitle("Top signatureSearch Results for Drug Compounds Reversing the PKD Gene Expression Profile in All Tumor Cell Lines") + labs(color="Cell Line", shape="Cell Type") 
+```
+
+#### CMAP Search Method
+```{r}
+#run query for signatures
+qsig_cmap <- qSig(query = list(upset=as.character(pkd_conv_UP), downset=as.character(pkd_conv_DOWN)), gess_method="CMAP", refdb="cmap")
+```
+
+```{r}
+cmap_table <- gess_cmap(qSig= qsig_cmap, chunk_size=5000)
+#top 50 results
+result(cmap_table)[1:50,]
+cmap_res_table <- result(cmap_table)
+head(cmap_res_table)
+#write.csv2(cmap_res_table)
+```
+
+```{r}
+cmap_drugs_top20 <- c(unique(cmap_res_table$pert)[1:20])
+gess_res_vis(cmap_res_table, drugs = cmap_drugs_top20, col = "scaled_score")
+```
+
+##### Cell Line Filtering Information
+(HL60) | Hematopoietic and Lymphoid Tissue 40 | Acute Myelogenous Leukemia (AML), M3 (Promyelocytic)
+(MCF7) | Breast 6231 | Adenocarcinoma
+(PC3) | Prostate 6724 | Adenocarcinoma
+
+### Functional Enrichment (FEA)
+#### With GO
+```{r}
+lincs_drugs_top20 <- c(unique(lincs_res_table$pert)[1:20])
+dup_hyperG_res <- tsea_dup_hyperG(drugs = lincs_drugs_top20, universe = "Default",
+                                  type = "GO", ont="MF", pvalueCutoff = 0.05,
+                                  pAdjustMethod="BH", qvalueCutoff = 0.1,
+                                  minGSSize = 10, maxGSSize = 500)
+dup_hyperG_res
+result(dup_hyperG_res)
+```
+
+#### With KEGG
+```{r}
+dup_hyperG_k_res <- tsea_dup_hyperG(drugs = lincs_drugs_top20, universe = "Default",
+                                    type = "KEGG", pvalueCutoff=0.5,
+                                    pAdjustMethod="BH", qvalueCutoff = 0.5,
+                                    minGSSize = 10, maxGSSize = 500)
+result(dup_hyperG_k_res)
+```
+
+#### With Reactome
+```{r}
+dup_rct_res <- tsea_dup_hyperG(drugs=lincs_drugs_top20, type="Reactome",
+                               pvalueCutoff=0.5, qvalueCutoff=0.5, readable=TRUE)
+result(dup_rct_res)
+```
+
+### Drug-Target Network Visualization
+#### With GO
+```{r}
+dtnetplot(drugs = drugs(dup_hyperG_res), set = "GO:0016712", ont = "MF",
+          desc="oxidoreductase activity, acting on paired donors, with incorporation or reduction of molecular oxygen, reduc")
+```
+
+```{r}
+dtnetplot(drugs = drugs(dup_hyperG_res), set = "GO:0008395", ont = "MF", desc = "steroid hydroxylase activity")
+```
+
+#### With KEGG
+```{r}
+dtnetplot(drugs = drugs(dup_hyperG_k_res), set = "hsa01524",
+          desc="Platinum drug resistance")
+```
+
+```{r}
+dtnetplot(drugs(dup_hyperG_k_res), set = "hsa04210",
+          desc="Apoptosis")
+```
+
