@@ -1,0 +1,143 @@
+---
+title: "Principal Component Analysis of Mice PKD Data"
+author: "Hannah Cleary"
+date: "7/6/2021"
+output: 
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Data Obtained
+https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE149739
+
+# Paper
+Cyclin-Dependent Kinase 1 Activity Is a Driver of Cyst Growth in Polycystic Kidney Disease
+https://jasn.asnjournals.org/content/32/1/41#sec-5
+
+
+## Purpose
+
+### Section Outline
+
+* Prep
+  + Load Packages
+  
+## Prep
+
+### Load Packages
+```{r}
+library("plyr"); library("dplyr")
+# if functions are needed from both plyr and dplyr, then load plyr first, then dplyr
+
+library("devtools")
+# dependcies: ‘credentials’, ‘zip’, ‘gitcreds’, ‘ini’, ‘diffobj’, ‘gert’, ‘gh’, ‘whisker’,    
+# ‘xopen’, ‘brio’, ‘praise’, ‘waldo’, ‘usethis’, ‘desc’, ‘pkgbuild’, ‘pkgload’, ‘rcmdcheck’, 
+# ‘remotes’, ‘roxygen2’, ‘rversions’, ‘sessioninfo’, ‘testthat’
+
+library("ggbiplot")
+```
+
+```{r}
+# read tabular data into R
+pkdmice <- read.delim(file.choose())
+```
+
+```{r}
+# first remember the names
+n <- pkdmice$GeneID
+
+# transpose all: to make columns into rows and rows into columns
+pkdmice <- as.data.frame(t(pkdmice))
+colnames(pkdmice) <- n
+```
+
+```{r}
+# remove first four rows of character values to generate numeric data frame
+pkdmice.numeric <- pkdmice[c(5:13),]
+
+# convert from data frame to matrix
+# https://stackoverflow.com/questions/16518428/right-way-to-convert-data-frame-to-a-numeric-matrix-when-df-also-contains-strin
+pkdmice.matrix <- apply(as.matrix.noquote(pkdmice.numeric),2,as.numeric)
+
+# remove columns with constant/zero column in order to rescale to unit variance
+# https://stackoverflow.com/questions/40315227/how-to-solve-prcomp-default-cannot-rescale-a-constant-zero-column-to-unit-var
+pkdmice.matrix.zerovariance <- pkdmice.matrix[ , which(apply(pkdmice.matrix, 2, var) != 0)]
+```
+
+```{r}
+# compute the principal components
+pkdmice.pca <- prcomp(pkdmice.matrix.zerovariance, center = TRUE, scale. = TRUE)
+summary(pkdmice.pca)
+```
+
+```{r}
+# view structure of PCA object
+str(pkdmice.pca)
+
+# The center point ($center), scaling ($scale), standard deviation (sdev) of each principal
+# component. The relationship (correlation or anticorrelation, etc) between the initial variables
+# and the principal components ($rotation). The values of each sample in terms of the principal
+# components ($x).
+```
+
+```{r}
+# plot without arrow lines
+ggbiplot(pkdmice.pca, var.axes = FALSE)
+
+# plot without arrow lines and application of row names (nine samples)
+ggbiplot(pkdmice.pca, var.axes = FALSE, labels=rownames(pkdmice.numeric))
+
+# now you can see which samples are similar to one another
+```
+
+```{r}
+# put samples into categories based on presence/absence of mutation
+# in pkdmice.numeric, first three rows are control, second three rows are PC2 mutants, and third
+# three rows are double mutants
+pkdmice.genetype <- c(rep("Wild Type",3), rep("PKD2 Mutant",3), rep("PKD2 Mutant + IFT88 Mutant",3))
+
+# ellipse = TRUE draws an ellipse around each group
+ggbiplot(pkdmice.pca,ellipse=TRUE, var.axes = FALSE, labels=rownames(pkdmice.numeric), groups=pkdmice.genetype)
+```
+
+```{r}
+# save plot as jpeg
+jpeg('MousePKDPCA_PC12.jpg')
+ggbiplot(pkdmice.pca,ellipse=TRUE, var.axes = FALSE, labels=rownames(pkdmice.numeric), groups=pkdmice.genetype)
+dev.off()
+
+# save plot as png
+png('MousePKDPCA_PC12.png')
+ggbiplot(pkdmice.pca,ellipse=TRUE, var.axes = FALSE, labels=rownames(pkdmice.numeric), groups=pkdmice.genetype)
+dev.off()
+
+# save plot as pdf
+pdf('MousePKDPCA_PC12.pdf')
+ggbiplot(pkdmice.pca,ellipse=TRUE, var.axes = FALSE, labels=rownames(pkdmice.numeric), groups=pkdmice.genetype)
+dev.off()
+```
+
+```{r}
+ggbiplot(pkdmice.pca,ellipse=TRUE, choices = 3:4, var.axes = FALSE, labels=rownames(pkdmice.numeric), groups=pkdmice.genetype)
+
+# save plot as jpeg
+jpeg('MousePKDPCA_PC34.jpg')
+ggbiplot(pkdmice.pca,ellipse=TRUE, var.axes = FALSE, labels=rownames(pkdmice.numeric), groups=pkdmice.genetype)
+dev.off()
+
+# save plot as png
+png('MousePKDPCA_PC34.png')
+ggbiplot(pkdmice.pca,ellipse=TRUE, var.axes = FALSE, labels=rownames(pkdmice.numeric), groups=pkdmice.genetype)
+dev.off()
+
+# save plot as pdf
+pdf('MousePKDPCA_PC34.pdf')
+ggbiplot(pkdmice.pca,ellipse=TRUE, var.axes = FALSE, labels=rownames(pkdmice.numeric), groups=pkdmice.genetype)
+dev.off()
+```
+
+

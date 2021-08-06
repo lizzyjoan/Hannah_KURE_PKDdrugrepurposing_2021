@@ -1,0 +1,524 @@
+---
+title: "deseq2-pkd-kcm"
+author: "Hannah Cleary"
+date: "7/12/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Intro
+
+# Data wrangling for Deseq2 Input
+read in the raw counts
+```{r}
+pkdmice <- read.delim(file.choose(), row.names="GeneID")
+```
+change raw counts into matrix
+```{r}
+pkdcounts <- as.matrix(pkdmice)
+```
+remove columns 2:4 as the are numeric columns and also remove the double mutant group
+```{r}
+pkdcts_small <- pkdcounts[,c(4:9)]
+```
+read in metadata
+```{r}
+pkdmeta <- read.csv(file.choose(), row.names=1) #SRAtable
+```
+keep only the wt and pc2 mutant groups (rows 1 through 6)
+```{r}
+pkdmeta <- pkdmeta[c(1:6),]
+```
+then keep only the Genotype column the use factor function on genotype
+```{r}
+pkdmeta <- pkdmeta["Genotype"]
+pkdmeta$Genotype <- factor(pkdmeta$Genotype)
+```
+check the class of pkdmeta
+```{r}
+class(pkdmeta) #data.frame
+```
+check class of columns - checking the first column
+```{r}
+class(pkdcts_small[,1])
+```
+make columns numeric
+```{r}
+pkdcts_small_numeric <- apply(pkdcts_small,2,as.numeric)
+```
+double check class of columns
+```{r}
+class(pkdcts_small_numeric[,1])
+```
+get names from raw file of raw counts
+```{r}
+#import raw counts again but without the row.names argument
+pkdmice123 <- read.delim(file.choose())
+#save the gene ids to a vector
+GeneID <- pkdmice123$GeneID
+```
+insert rownames back into the numeric version of counts data called pkdcts_small_numeric
+```{r}
+rownames(pkdcts_small_numeric) <- GeneID
+```
+Run deseq analysis of data
+```{r}
+library(DESeq2)
+pkd_small_dds <- DESeqDataSetFromMatrix(countData = pkdcts_small_numeric,
+                              colData = pkdmeta,
+                              design = ~ Genotype)
+pkd_small_dds #view object
+```
+
+> user notes: pkd_small_dds is an object created from the DESeqDataSetFromMatrix function. it will be the input for view results
+perform default analysis then list the coefficients
+
+```{r}
+pkd_small_dds <- DESeq(pkd_small_dds)#performs the default analysis
+resultsNames(pkd_small_dds) # lists the coefficients
+```
+
+Results 1
+```{r}
+pkd_small_result1 <- results(pkd_small_dds, name="Genotype_Wild.type_vs_Pkd2fl.fl.Pax8rtTA.TetO.cre") #name is found when running the resultsNames function
+#pull all the things that are NOT NA
+pkd_small_result1 <- pkd_small_result1[!is.na(pkd_small_result1$log2FoldChange),]
+```
+
+Result 1 viz
+```{r}
+plotMA(pkd_small_result1, ylim=c(-2,2))
+```
+
+Results 2 - shrinks log fold changes association with condition (condition here is WT vs PKD)
+```{r}
+library(apeglm) #must open this pkg to run next code line without error
+# or to shrink log fold changes association with condition:
+pkd_small_result2 <- lfcShrink(pkd_small_dds, coef="Genotype_Wild.type_vs_Pkd2fl.fl.Pax8rtTA.TetO.cre", type="apeglm")
+```
+
+Result 2 viz
+```{r}
+plotMA(pkd_small_result2, ylim=c(-2,2))
+```
+
+Results 3
+
+> User notes: for signature search, lizzy said need to use the contrast argument instead of name argument in the deseq2's results function
+
+```{r}
+pkd_small_result3 <- results(pkd_small_dds, contrast=c("Genotype", "Wild type", "Pkd2fl/fl;Pax8rtTA;TetO-cre"))
+```
+
+Result 3 viz
+```{r}
+plotMA(pkd_small_result3, ylim=c(-2,2))
+```
+
+check class of result3
+```{r}
+class(pkd_small_result3)
+```
+
+convert deseq2 object into dataframe and save as csv file. This can all be done within 1 codeline
+```{r}
+#write.csv(as.data.frame(pkd_small_result3), file = "/Users/Kasi/Desktop/KasiGitRDone/01-PKD-Intercellular-Communication-in-Druggability/RESULTS/Intermediate-Tables/PKDMouseWtMt_DESeq2_results.csv")
+```
+Apply variance stabilizing transformation using the dds object called pkd_small_dds as input (copied from Lizzy)
+```{r}
+pkd_small_dds_vsd <- vst(pkd_small_dds, blind = FALSE)
+```
+Using the transformed Deseq object called pkd_small_dds_vsd as input, plot PCA using PCA plot function from Deseq2 pkg
+```{r Mouse_DESeq2_PCA}
+pkdmouse_deseq2_pca <- DESeq2::plotPCA(pkd_small_dds_vsd, intgroup = "Genotype", )
+pkdmouse_deseq2_pca #view
+```
+ 
+# Data wrangling to get Deseq results to get up and down list for SignatureSearch
+* get the up and down changes then convert mouse genes to ortholog genes
+
+Class of pkd_small_result3?
+```{r}
+class(pkd_small_result3)#deseqresults
+```
+
+first convert the deseqresults pkg into a matrix. Matrix is the proper input for the next step which is to remove the ESEMBL versions. We must remove the ENSEMBL versions ids b/c genes should never had versions before converting to human or putting through signaturesesarch. We use the newly made matrix output as the input for removing the ESEMBL versions. Next, we need to convert this modified matrix into a dataframe and also indicate rownames as ENSEMBL. This is needed to be done in order to convert from mouse to human genes. Then the last step is to remove rows that are only NA.
+
+
+
+```{r}
+library(tibble)
+#BiocManager::install("magrittr")
+library(magrittr)
+#first step
+pkd_small_results3_matrix <- as.matrix(pkd_small_result3)
+rownames(pkd_small_results3_matrix) <- sub("\\..*", "", rownames(pkd_small_results3_matrix))
+#second step
+pkd_small_result3_df <- pkd_small_results3_matrix %>% as.data.frame() %>% rownames_to_column(., "ENSEMBL")
+class(pkd_small_result3_df)
+#third step
+pkd_small_result3_df_na <- pkd_small_result3_df[!is.na(pkd_small_result3_df$log2FoldChange),]#remove rows that are only NA.
+class(pkd_small_result3_df_na)#data.frame
+```
+
+subset pkd_small_result3_df_na to UP list based on L2FC >2 and padj <0.05. (The output should still be as a data.frame.) then remove NAs as necessary
+* note that 2 in pkd_small_result3_UP2 and pkd_small_result3_UP2_na stands for LFC>2
+```{r}
+pkd_small_result3_UP2 <- pkd_small_result3_df_na[pkd_small_result3_df_na$log2FoldChange > 2 & pkd_small_result3_df_na$padj < 0.05,] #subsetting 
+class(pkd_small_result3_UP2) #dataframe
+pkd_small_result3_UP2_na <- pkd_small_result3_UP2[!is.na(pkd_small_result3_UP2$log2FoldChange),] #removing NA items
+```
+
+> UserNotes: subsetting pkd_small_result3_df_na based on L2FC >2, padj<0.05 resulted in 13 genes.going to make another list subsetting for L2FC >1.5 to see how many genes we got with that. 
+Now, subset pkd_small_result3_df_na to UP list based on L2FC >1.5 and padj <0.05. (The output should still be as a data.frame.) then remove NAs as necessary
+* note that 1.5 in pkd_small_result3_UP1.5 and pkd_small_result3_UP1.5_na stands for LFC>1.5
+
+```{r}
+pkd_small_result3_UP1.5 <- pkd_small_result3_df_na[pkd_small_result3_df_na$log2FoldChange > 1.5 & pkd_small_result3_df_na$padj < 0.05,] #subsetting
+class(pkd_small_result3_UP1.5) #dataframe
+pkd_small_result3_UP1.5_na <- pkd_small_result3_UP1.5[!is.na(pkd_small_result3_UP1.5$log2FoldChange),] #removing NA items
+```
+
+> UserNotes: subsetting pkd_small_result3_UP1.5_na based on L2FC >1.5, padj<0.05 resulted in 26 genes.
+subset pkd_small_result3_df_na to DOWN list based on L2FC < -2 and padj <0.05. (The output should still be as a data.frame.) then remove NAs as necessary
+* note that 2 in pkd_small_result3_UP2 and pkd_small_result3_UP2_na stands for LFC<-2. REMEMBER: to change to less than sign b/c this is the down list
+
+```{r}
+pkd_small_result3_DOWN2 <- pkd_small_result3_df_na[pkd_small_result3_df_na$log2FoldChange < -2 & pkd_small_result3_df_na$padj < 0.05,] #subsetting 
+class(pkd_small_result3_DOWN2) #dataframe
+pkd_small_result3_DOWN2_na <- pkd_small_result3_DOWN2[!is.na(pkd_small_result3_DOWN2$log2FoldChange),] #removing NA items
+```
+ 
+ 
+> UserNotes: subsetting pkd_small_result3_df_na based on L2FC <-2, padj<0.05 resulted in 24 genes.going to make another list subsetting for L2FC <-1.5 to see how many genes we got with that. 
+ 
+ subset pkd_small_result3_df_na to DOWN list based on L2FC < -2 and padj <0.05. (The output should still be as a data.frame.) then remove NAs as necessary
+* note that 1.5 in pkd_small_result3_DOWN1.5 and pkd_small_result3_DOWN1.5_na stands for LFC<-1.5. REMEMBER: to change to less than sign b/c this is the down list
+```{r}
+pkd_small_result3_DOWN1.5 <- pkd_small_result3_df_na[pkd_small_result3_df_na$log2FoldChange < -1.5 & pkd_small_result3_df_na$padj < 0.05,] #subsetting 
+class(pkd_small_result3_DOWN1.5) #dataframe
+pkd_small_result3_DOWN1.5_na <- pkd_small_result3_DOWN1.5[!is.na(pkd_small_result3_DOWN1.5$log2FoldChange),] #removing NA items
+```
+ 
+```{r}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+        install.packages("BiocManager")
+BiocManager::install("hom.Mm.inp.db")
+```
+
+```{r}
+BiocManager::install("hom.Mm.inp.db")
+```
+
+```{r}
+source("https://bioconductor.org/biocLite.R")
+biocLite("hom.Mm.inp.db")
+```
+
+
+```{r}
+library(hom.Mm.inp.db)
+paranoid <- AnnotationDbi::idConverter(pkd_small_result3_df_na$ENSEMBL, srcSpecies = "MUSMU", destSpecies = "HOMSA", "ENSEMBL", destIDType = "EG")
+```
+
+
+# Data wrangling Up and Down list - converting mouse to human ortholog
+
+**Convert from mouse to human orthologous symbols**  
+To be able to compare gene expression data from mouse to human, must convert first to orthologous genes
+
+```{r Conversion_Function}
+## Basic function to convert mouse to human gene names
+convertMouseGeneList <- function(x){
+require("biomaRt")
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+mouse = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+genesV2 = getLDS(attributes = c("mgi_symbol"), filters = "mgi_symbol", values = x , mart = mouse, attributesL = c("hgnc_symbol"), martL = human, uniqueRows=T)
+return(genesV2)
+}
+```
+
+**AnnotationDbi for Mouse Symbols**  
+
+```{r Mouse_Anno, message=FALSE}
+#annotation
+library(org.Mm.eg.db)
+#retrieve conversion info from one ID type to another
+#REPLACE test_mouse to mouse_anno
+mouse_anno <- AnnotationDbi::select(org.Mm.eg.db, keys = rownames(pkd_small_results3_matrix), columns = c("SYMBOL", "ENTREZID"),keytype = "ENSEMBL")
+#determine indices for non-NA genes
+mousenon_na_entrez <- which(is.na(mouse_anno$ENTREZID) == FALSE)
+#return only the genes with annotations using indices
+mouse_anno <- mouse_anno[mousenon_na_entrez, ]
+#determine indices for non-duplicated genes
+mouseno_dups_entrez <- which(duplicated(mouse_anno$ENTREZID) == FALSE)
+#return only non-dup genes using indices
+mouse_anno <- mouse_anno[mouseno_dups_entrez, ]
+#add symbols to mouse data
+mouse_entrez_UP2 <- dplyr::inner_join(mouse_anno, pkd_small_result3_UP2_na, by = "ENSEMBL")
+#has GO annotation as well as the other gene ID info
+mouse_symbol_GO_UP2 <- column_to_rownames(mouse_entrez_UP2, var = "SYMBOL")
+#removing annotations, symbols for row names, format for analysis
+###mouse_symbol <- mouse_symbol_GO[,c(5:20)]
+#mouse_symbol_UP2 <- mouse_symbol_GO_UP2[,c(5:10)]
+```
+
+```{r Mouse_Orthologs}
+#BiocManager::install("biomaRt")
+library(biomaRt)
+#Use convertMouseGeneList to convert to human genes
+mouse_to_human_genes <- convertMouseGeneList(mouse_anno$SYMBOL)
+conv_mouse_UP2 <- mouse_entrez_UP2 %>% dplyr::rename(MGI.symbol = SYMBOL) %>% dplyr::left_join(., mouse_to_human_genes, by = "MGI.symbol")
+#determine non-NA genes
+non_na_mouse <- which(is.na(conv_mouse_UP2$HGNC.symbol) == FALSE)
+#return only the genes with annotations using indices
+conv_mouse_UP2 <- conv_mouse_UP2[non_na_mouse, ]
+#determine indices for non-duplicated genes
+no_dups_mouse <- which(duplicated(conv_mouse_UP2$HGNC.symbol) == FALSE)
+#return only non-dup genes using indices
+conv_mouse_UP2 <- conv_mouse_UP2[no_dups_mouse, ]
+rownames(conv_mouse_UP2) <- NULL 
+conv_mouse_UP2 <- conv_mouse_UP2 %>% as.data.frame() %>% column_to_rownames(., var = "HGNC.symbol") 
+conv_pkd_small_result3_UP2 <- conv_mouse_UP2[,c(2:7)]
+```
+!The best way to convert from mouse genes to human genes is via SYMBOLS! 
+
+Lizzy: This is what Vishal downloaded from ensembl, with all mouse geens and then all human orthologous genes all in a csv. So I'm working on a script right now that you can use that will simply match up to this list and combine (a dataframe with your data plus the other orthologous gene ID's) Hopefully that makes sense.
+```{r}
+library(dplyr)
+#Read in all ensembl mouse genes and their human orthologous genes
+orthos <- read.csv(file.choose(), na.strings=c("","NA")) #file.choose(mart_export.txt)
+orthos <- dplyr::rename(orthos, ENSEMBL = Gene.stable.ID, Mouse_Gene = Gene.name, Human_Gene = Human.gene.name, Human_ENSEMBL = Human.gene.stable.ID)
+#combine by matching genes to pull orthologous genes
+pkd_gene_matches <- left_join(pkd_small_result3_df_na, orthos, by = "ENSEMBL")
+#only genes that have human orthologs and no NA's for L2FC and padj
+pkd_orthos <- dplyr::filter(pkd_gene_matches, !is.na(Human_ENSEMBL))
+pkd_orthos <- pkd_gene_matches[!is.na(pkd_gene_matches$log2FoldChange) & !is.na(pkd_gene_matches$Human_ENSEMBL) & !is.na(pkd_gene_matches$padj),]
+#find up and down genes
+pkd_UP <- pkd_orthos[pkd_orthos$log2FoldChange > 2 & pkd_orthos$padj < 0.05,]
+pkd_DOWN <- pkd_orthos[pkd_orthos$log2FoldChange < -2 & pkd_orthos$padj < 0.05,]
+#select only columns needed for signaturesearch
+#convert human orthologs from ensembl to entrez for signaturesearch qsig input (gives )
+library(EnsDb.Hsapiens.v75)
+pkd_conv_UP <- mapIds(EnsDb.Hsapiens.v75, keys = pkd_UP$Human_ENSEMBL, column="ENTREZID", keytype="GENEID", multiVals="first")
+pkd_conv_DOWN <- mapIds(EnsDb.Hsapiens.v75, keys = pkd_DOWN$Human_ENSEMBL, column="ENTREZID", keytype="GENEID", multiVals="first")
+qsig_cmap <- qSig(query = list(upset=as.character(pkd_conv_UP), downset=as.character(pkd_conv_UP)),
+                                              gess_method="CMAP", refdb="lincs")
+```
+
+## START of Lizzy's code chunks
+**This code is meant to help go from mouse DESeq2 results, convert to orthologous human genes, find up and down differentially expressed genes, and then try out those genes with signaturesearch's lincs and cmap methods and reference databases... however, results look weird. More troubleshooting required
+```{r}
+library(dplyr)
+#Read in all ensembl mouse genes and their human orthologous genes
+orthos <- read.csv(file.choose(), na.strings=c("","NA")) #file.choose(mart_export.txt)
+#rename columns
+orthos <- dplyr::rename(orthos, ENSEMBL = Gene.stable.ID, Mouse_Gene = Gene.name, Human_Gene = Human.gene.name, Human_ENSEMBL = Human.gene.stable.ID)
+#use left join to pull all gene orthologs from orthos that match to genes in your DESeq2 results
+pkd_gene_matches <- left_join(pkd_small_result3_df_na, orthos, by = "ENSEMBL")
+#filter for only genes that have human orthologs and no NA's for L2FC and padj
+pkd_orthos <- dplyr::filter(pkd_gene_matches, !is.na(Human_ENSEMBL))
+pkd_orthos <- pkd_gene_matches[!is.na(pkd_gene_matches$log2FoldChange) & !is.na(pkd_gene_matches$Human_ENSEMBL) & !is.na(pkd_gene_matches$padj),]
+##if you'd like, save pkd_orthos right here and then open in your SignatureSearch markdown
+#END DESeq2 MD
+```
+
+```{r}
+#START SignatureSearch MD
+##read in pkd_orthos
+#find up and down differentially expressed genes
+pkd_UP <- pkd_orthos[pkd_orthos$log2FoldChange > 2 & pkd_orthos$padj < 0.05,]
+pkd_DOWN <- pkd_orthos[pkd_orthos$log2FoldChange < -2 & pkd_orthos$padj < 0.05,]
+```
+
+```{r}
+#convert human orthologs from ensembl to entrez for signaturesearch qsig input (returns just a list of the genes converted to entrez)
+library(EnsDb.Hsapiens.v75)
+pkd_conv_UP <- mapIds(EnsDb.Hsapiens.v75, keys = pkd_UP$Human_ENSEMBL, column="ENTREZID", keytype="GENEID", multiVals="first")
+pkd_conv_DOWN <- mapIds(EnsDb.Hsapiens.v75, keys = pkd_DOWN$Human_ENSEMBL, column="ENTREZID", keytype="GENEID", multiVals="first")
+```
+
+```{r}
+#run query for signatures
+qsig_lincs <- qSig(query = list(upset=as.character(pkd_conv_UP), downset=as.character(pkd_conv_UP)), gess_method="LINCS", refdb="lincs")
+```
+
+```{r}
+#see below for explanation of the arguments
+lincs_table <- gess_lincs(qSig= qsig_lincs, sortby="NCS", tau=TRUE)
+#top 50 results
+result(lincs_table)[1:50,]
+lincs_res_table <- result(lincs_table)
+head(lincs_res_table)
+#write.csv2(lincs_res_table, file = )
+#From Vignette: "The similarity scores stored in the LINCS result table are summarized here. WTCS: Weighted Connectivity Score; WTCS_Pval: nominal p-value of WTCS; WTCS_FDR: false discovery rate of WTCS_Pval; NCS: normalized connectivity score; NCSct: NCS summarized across cell types; Tau: enrichment score standardized for a given database. The latter is only included in the result table if tau=TRUE in a gess_lincs function call. The example given is run with tau=FALSE, because the tau values are only meaningful when the complete LINCS database is used which is not the case for the toy database."
+```
+
+```{r}
+#find top 20 drugs from lincs method
+lincs_drugs_top20 <- c(unique(lincs_res_table$pert)[1:20])
+gess_res_vis(lincs_res_table, drugs = lincs_drugs_top20 , col = "NCS")
+```
+
+```{r}
+#run query for signatures
+qsig_cmap <- qSig(query = list(upset=as.character(pkd_conv_UP), downset=as.character(pkd_conv_UP)), gess_method="CMAP", refdb="cmap")
+```
+
+```{r}
+cmap_table <- gess_cmap(qSig= qsig_cmap, chunk_size=5000)
+#top 50 results
+result(cmap_table)[1:50,]
+cmap_res_table <- result(cmap_table)
+head(cmap_res_table)
+#write.csv2(cmap_res_table)
+```
+
+```{r}
+cmap_drugs_top20 <- c(unique(cmap_res_table$pert)[1:20])
+gess_res_vis(cmap_res_table, drugs = cmap_drugs_top20, col = "scaled_score")
+```
+##END of Lizzy's code chunks
+
+up 1.5 list
+```{r Mouse_Anno, message=FALSE}
+#add symbols to mouse data
+mouse_symbol_UP1.5 <- dplyr::inner_join(mouse_anno, pkd_small_result3_UP1.5_na, by = "ENSEMBL")
+#has GO annotation as well as the other gene ID info
+mouse_symbol_GO_UP1.5 <- column_to_rownames(mouse_symbol_UP1.5, var = "SYMBOL")
+#removing annotations, symbols for row names, format for analysis
+###mouse_symbol <- mouse_symbol_GO[,c(5:20)]
+mouse_symbol_UP1.5 <- mouse_symbol_GO_UP1.5[,c(5:10)]
+```
+
+```{r Mouse_Orthologs}
+#BiocManager::install("biomaRt")
+#library(biomaRt)
+#Use convertMouseGeneList to convert to human genes
+#mouse_to_human_genes <- convertMouseGeneList(mouse_anno$SYMBOL)
+conv_mouse_UP1.5 <- mouse_symbol_UP1.5 %>% rownames_to_column(., var = "MGI.symbol") %>% dplyr::left_join(., mouse_to_human_genes, by = "MGI.symbol")
+#determine non-NA genes
+non_na_mouse <- which(is.na(conv_mouse_UP1.5$HGNC.symbol) == FALSE)
+#return only the genes with annotations using indices
+conv_mouse_UP1.5 <- conv_mouse_UP1.5[non_na_mouse, ]
+#determine indices for non-duplicated genes
+no_dups_mouse <- which(duplicated(conv_mouse_UP1.5$HGNC.symbol) == FALSE)
+#return only non-dup genes using indices
+conv_mouse_UP1.5 <- conv_mouse_UP1.5[no_dups_mouse, ]
+rownames(conv_mouse_UP1.5) <- NULL 
+conv_mouse_UP1.5 <- conv_mouse_UP1.5 %>% as.data.frame() %>% column_to_rownames(., var = "HGNC.symbol") 
+conv_pkd_small_result3_UP1.5 <- conv_mouse_UP1.5[,c(2:7)]
+```
+
+down 2 list
+```{r Mouse_Anno, message=FALSE}
+#add symbols to mouse data
+mouse_symbol_DOWN2 <- dplyr::inner_join(mouse_anno, pkd_small_result3_DOWN2_na, by = "ENSEMBL")
+#has GO annotation as well as the other gene ID info
+mouse_symbol_GO_DOWN2 <- column_to_rownames(mouse_symbol_DOWN2, var = "SYMBOL")
+#removing annotations, symbols for row names, format for analysis
+###mouse_symbol <- mouse_symbol_GO[,c(5:20)]
+mouse_symbol_DOWN2 <- mouse_symbol_GO_DOWN2[,c(5:10)]
+```
+
+```{r Mouse_Orthologs}
+#BiocManager::install("biomaRt")
+#library(biomaRt)
+#Use convertMouseGeneList to convert to human genes
+#mouse_to_human_genes <- convertMouseGeneList(mouse_anno$SYMBOL)
+conv_mouse_DOWN2 <- mouse_symbol_DOWN2 %>% rownames_to_column(., var = "MGI.symbol") %>% dplyr::left_join(., mouse_to_human_genes, by = "MGI.symbol")
+#determine non-NA genes
+non_na_mouse <- which(is.na(conv_mouse_DOWN2$HGNC.symbol) == FALSE)
+#return only the genes with annotations using indices
+conv_mouse_DOWN2 <- conv_mouse_DOWN2[non_na_mouse, ]
+#determine indices for non-duplicated genes
+no_dups_mouse <- which(duplicated(conv_mouse_DOWN2$HGNC.symbol) == FALSE)
+#return only non-dup genes using indices
+conv_mouse_DOWN2 <- conv_mouse_DOWN2[no_dups_mouse, ]
+rownames(conv_mouse_DOWN2) <- NULL 
+conv_mouse_DOWN2 <- conv_mouse_DOWN2 %>% as.data.frame() %>% column_to_rownames(., var = "HGNC.symbol") 
+conv_pkd_small_result3_DOWN2 <- conv_mouse_DOWN2[,c(2:7)]
+```
+
+down 1.5 list
+```{r Mouse_Anno, message=FALSE}
+#add symbols to mouse data
+mouse_symbol_DOWN1.5 <- dplyr::inner_join(mouse_anno, pkd_small_result3_DOWN1.5_na, by = "ENSEMBL")
+#has GO annotation as well as the other gene ID info
+mouse_symbol_GO_DOWN1.5 <- column_to_rownames(mouse_symbol_DOWN1.5, var = "SYMBOL")
+#removing annotations, symbols for row names, format for analysis
+###mouse_symbol <- mouse_symbol_GO[,c(5:20)]
+mouse_symbol_DOWN1.5 <- mouse_symbol_GO_DOWN1.5[,c(5:10)]
+```
+
+```{r Mouse_Orthologs}
+#BiocManager::install("biomaRt")
+#library(biomaRt)
+#Use convertMouseGeneList to convert to human genes
+#mouse_to_human_genes <- convertMouseGeneList(mouse_anno$SYMBOL)
+conv_mouse_DOWN1.5 <- mouse_symbol_DOWN1.5 %>% rownames_to_column(., var = "MGI.symbol") %>% dplyr::left_join(., mouse_to_human_genes, by = "MGI.symbol")
+#determine non-NA genes
+non_na_mouse <- which(is.na(conv_mouse_DOWN1.5$HGNC.symbol) == FALSE)
+#return only the genes with annotations using indices
+conv_mouse_DOWN1.5 <- conv_mouse_DOWN1.5[non_na_mouse, ]
+#determine indices for non-duplicated genes
+no_dups_mouse <- which(duplicated(conv_mouse_DOWN1.5$HGNC.symbol) == FALSE)
+#return only non-dup genes using indices
+conv_mouse_DOWN1.5 <- conv_mouse_DOWN1.5[no_dups_mouse, ]
+rownames(conv_mouse_DOWN1.5) <- NULL 
+conv_mouse_DOWN1.5 <- conv_mouse_DOWN1.5 %>% as.data.frame() %>% column_to_rownames(., var = "HGNC.symbol") 
+conv_pkd_small_result3_DOWN1.5 <- conv_mouse_DOWN1.5[,c(2:7)]
+```
+
+### Write CSV Files for signatureSearch Package
+```{r}
+write.csv(conv_pkd_small_result3_DOWN1.5, 'conv_pkd_small_result3_DOWN1.5.csv')
+write.csv(conv_pkd_small_result3_DOWN2, 'conv_pkd_small_result3_DOWN2.csv')
+write.csv(conv_pkd_small_result3_UP1.5, 'conv_pkd_small_result3_UP1.5.csv')
+write.csv(conv_pkd_small_result3_UP2, 'conv_pkd_small_result3_UP2.csv')
+```
+
+
+```{r}
+pkd_small_result3_UP0.5 <- pkd_small_result3_df_na[pkd_small_result3_df_na$log2FoldChange > 0.5 & pkd_small_result3_df_na$padj < 0.05,] #subsetting 
+class(pkd_small_result3_UP0.5) #dataframe
+pkd_small_result3_UP0.5_na <- pkd_small_result3_UP0.5[!is.na(pkd_small_result3_UP0.5$log2FoldChange),] #removing NA items
+```
+
+up 0.5 list
+```{r Mouse_Anno, message=FALSE}
+#add symbols to mouse data
+mouse_symbol_UP0.5 <- dplyr::inner_join(mouse_anno, pkd_small_result3_UP0.5_na, by = "ENSEMBL")
+#has GO annotation as well as the other gene ID info
+mouse_symbol_GO_UP0.5 <- column_to_rownames(mouse_symbol_UP0.5, var = "SYMBOL")
+#removing annotations, symbols for row names, format for analysis
+###mouse_symbol <- mouse_symbol_GO[,c(5:20)]
+mouse_symbol_UP0.5 <- mouse_symbol_GO_UP0.5[,c(5:10)]
+```
+
+```{r Mouse_Orthologs}
+#BiocManager::install("biomaRt")
+#library(biomaRt)
+#Use convertMouseGeneList to convert to human genes
+#mouse_to_human_genes <- convertMouseGeneList(mouse_anno$SYMBOL)
+conv_mouse_UP0.5 <- mouse_symbol_UP0.5 %>% rownames_to_column(., var = "MGI.symbol") %>% dplyr::left_join(., mouse_to_human_genes, by = "MGI.symbol")
+#determine non-NA genes
+non_na_mouse <- which(is.na(conv_mouse_UP0.5$HGNC.symbol) == FALSE)
+#return only the genes with annotations using indices
+conv_mouse_UP0.5 <- conv_mouse_UP0.5[non_na_mouse, ]
+#determine indices for non-duplicated genes
+no_dups_mouse <- which(duplicated(conv_mouse_UP0.5$HGNC.symbol) == FALSE)
+#return only non-dup genes using indices
+conv_mouse_UP0.5 <- conv_mouse_UP0.5[no_dups_mouse, ]
+rownames(conv_mouse_UP0.5) <- NULL 
+conv_mouse_UP0.5 <- conv_mouse_UP0.5 %>% as.data.frame() %>% column_to_rownames(., var = "HGNC.symbol") 
+conv_pkd_small_result3_UP0.5 <- conv_mouse_UP0.5[,c(2:7)]
+```
+
+```{r}
+write.csv(conv_pkd_small_result3_UP0.5, 'conv_pkd_small_result3_UP0.5.csv')
+```
+

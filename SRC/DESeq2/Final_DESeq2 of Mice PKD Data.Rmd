@@ -1,0 +1,95 @@
+---
+title: "Final_DESeq2 of Mice PKD Data"
+author: "Hannah Cleary"
+date: "7/12/2021"
+output: 
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Purpose
+
+### Section Outline
+
+* Prep
+  + Load Packages
+  + Load and Convert Raw Counts
+  + Load and Convert Metadata Table
+  + Verify Class and Data Type
+  + Insert Row Names into Data Frame
+  + Initiate DESeq2 Package
+
+## Prep
+
+### Load Packages
+```{r}
+library("DESeq2")
+```
+
+### Load and Convert Raw Counts
+```{r}
+# read raw counts tabular data into R {fixed_raw_counts_mouse.txt}
+DEpkdmice <- read.delim(file.choose(), row.names="GeneID")
+# convert raw counts data frame into matrix
+DEpkdmice.matrix <- as.matrix(DEpkdmice)
+# remove character and double mutant columns from data matrix (col. 1-3, 10-12)
+DEpkdmice.matrix <- DEpkdmice.matrix[,c(4:9)]
+```
+
+### Load and Convert Metadata Table
+```{r}
+# read metadata into R (data separated by commas) {SraRunTable.txt}
+DEpkdmice.meta <- read.csv(file.choose(), row.names=1)
+# remove double mutant rows from metadata (row. 1-6)
+DEpkdmice.meta <- DEpkdmice.meta[c(1:6),]
+# remove all columns from metadata except "Genotype" (col. 14)
+DEpkdmice.meta <- DEpkdmice.meta["Genotype"]
+DEpkdmice.meta$Genotype <- factor(DEpkdmice.meta$Genotype)
+```
+
+### Verify Class and Data Type
+```{r}
+# check class of DEpkdmice.meta
+class(DEpkdmice.meta) # "data.frame"
+# check class of DEpkdmice.matrix columns (first column)
+class(DEpkdmice.matrix[,1]) # "character"
+```
+
+```{r}
+# convert DEpkdmice.matrix to contain numeric columns
+DEpkdmice.matrix.numeric <- apply(DEpkdmice.matrix,2,as.numeric)
+# check class of DEpkdmice.matrix.numeric columns (first column)
+class(DEpkdmice.matrix.numeric[,1]) # "numeric"
+```
+
+### Insert Row Names into Data Frame
+```{r}
+# import raw counts again without row.names argument {fixed_raw_counts_mouse.txt}
+DEpkdmice.names <- read.delim(file.choose())
+# save Gene IDs to a vector
+GeneID <- DEpkdmice.names$GeneID
+# insert row names into numeric object (DEpkdmice.matrix.numeric)
+rownames(DEpkdmice.matrix.numeric) <- GeneID
+```
+
+### Initiate DESeq2 Package
+```{r}
+DEpkdmice.matrix.dds <- DESeqDataSetFromMatrix(countData = DEpkdmice.matrix.numeric,
+                                        colData = DEpkdmice.meta,
+                                        design = ~ Genotype)
+# view object
+DEpkdmice.matrix.dds 
+```
+The object created in DEpkdmice.dds is of the DESeqDataSet class with dimensions of 55385 rows and six columns. 
+
+```{r}
+# perform default analysis
+DEpkdmice.matrix.dds <- DESeq(DEpkdmice.matrix.dds)
+# list the coefficents
+resultsNames(DEpkdmice.matrix.dds)
+```
+

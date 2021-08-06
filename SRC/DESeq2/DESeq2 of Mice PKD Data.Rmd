@@ -1,0 +1,641 @@
+---
+title: "DESeq2 of Mice PKD Data"
+author: "Hannah Cleary"
+date: "7/7/2021"
+output: 
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Purpose
+
+### Section Outline
+
+* Prep
+  + Load Packages
+  
+## Prep
+
+### Load Packages
+```{r}
+### library("DESeq2")
+```
+
+### Load and Convert Data
+```{r}
+# read raw counts tabular data into R
+### DEpkdmice <- read.delim(file.choose())
+
+# convert raw counts data frame into matrix
+### DEpkdmice.matrix <- as.matrix(read.delim(file.choose(),row.names="GeneID"))
+
+# remove unnecessary columns from data matrix (col. 1-3)
+### DEpkdmice.matrixrevised <- DEpkdmice.matrix[,c(4:12)]
+```
+
+### Load and Convert Metadata
+```{r}
+# read metadata into R (data separated by commas)
+### DEpkdmice.meta <- read.delim(file.choose(), sep=",", row.names = 1)
+
+# remove unnecessary columns from metadata (all columns except Genotype (col. 14))
+### DEpkdmice.metarevised <- DEpkdmice.meta["Genotype"]
+```
+
+### Initiate DESeq2 Package
+
+### Error Message Troubleshooting
+```{r}
+### DEpkdmice.data <- DESeqDataSetFromMatrix(countData = DEpkdmice.matrix,
+                                         # colData = DEpkdmice.metarevised,
+                                         # design = ~ Genotype)
+# Error in DESeqDataSetFromMatrix(countData = DEpkdmice.matrix, colData = DEpkdmice.metarevised,:
+# ncol(countData) == nrow(colData) is not TRUE
+
+# run above code line again with additional columns eliminated from matrix
+### DEpkdmice.data <- DESeqDataSetFromMatrix(countData = DEpkdmice.matrixrevised,
+                                         # colData = DEpkdmice.metarevised,
+                                         # design = ~ Genotype)
+# Error in DESeqDataSet(se, design = design, ignoreRank) : some values in assay are negative
+
+# converted metadata from data frame into matrix
+### DEpkdmice.data <- DESeqDataSetFromMatrix(countData = DEpkdmice.matrixrevised,
+                                         # colData = DEpkdmice.metamatrix,
+                                         # design = ~ Genotype)
+# Error in DESeqDataSet(se, design = design, ignoreRank) : some values in assay are negative
+```
+
+```{r}
+# remove potential outlier to determine location of negative value in assay
+### DEpkdmice.matrixrevised.outlier <- DEpkdmice.matrixrevised[,c(1:7,9)]
+### DEpkdmice.metarevised.outlier <- DEpkdmice.metarevised[c(1:7,9),]
+
+# re-evaluate code from above to initiate DESeq2 package
+### DEpkdmice.data.outlier <- DESeqDataSetFromMatrix(countData = DEpkdmice.matrixrevised.outlier,
+                                         # colData = DEpkdmice.metarevised.outlier,
+                                         # design = ~ Genotype)
+# Error in `rownames<-`(`*tmp*`, value = colnames(countData)) : attempt to set 'rownames' on an 
+# object with no dimensions
+
+# meta data file was converted to character value attempt to leave as data
+### DEpkdmice.metarevised.outlier <- DEpkdmice.metarevised["SRR11680782"]
+# Error in `[.data.frame`(DEpkdmice.metarevised, "SRR11680782") : undefined columns selected
+
+### DEpkdmice.metarevised.outlier <- DEpkdmice.metarevised[-8,]
+### DEpkdmice.data.outlier <- DESeqDataSetFromMatrix(countData = DEpkdmice.matrixrevised.outlier,
+                                         # colData = DEpkdmice.metarevised.outlier,
+                                         # design = ~ Genotype)
+# Error in `rownames<-`(`*tmp*`, value = colnames(countData)) : attempt to set 'rownames' on an 
+# object with no dimensions
+```
+
+```{r}
+# upon second evaluation, the problem may lie in the metadata 
+# convert metadata from data frame into matrix
+### DEpkdmice.metarevised.matrix <- as.matrix(DEpkdmice.metarevised)
+
+# remove outlier from meta matrix
+### DEpkdmice.metarevised.matrix.outlier <- DEpkdmice.metarevised.matrix[c(1:7,9),]
+```
+
+```{r}
+# test data reset 
+
+# read raw counts tabular data into R
+### tDEpkdmice <- read.delim(file.choose())
+
+# convert raw counts data frame into matrix
+### tDEpkdmice.matrix <- as.matrix(read.delim(file.choose(),row.names="GeneID"))
+
+# remove unnecessary columns from data matrix (col. 1-3)
+### tDEpkdmice.matrixrevised <- DEpkdmice.matrix[,c(4:10,12)]
+
+# attempt to run initiation of DESeq2 again
+### DEpkdmice.data.outlier <- DESeqDataSetFromMatrix(countData = tDEpkdmice.matrixrevised,
+                                         # colData = DEpkdmice.metarevised.outlier,
+                                         # design = ~ Genotype)
+# Error in `rownames<-`(`*tmp*`, value = colnames(countData)) : attempt to set 'rownames' on an
+# object with no dimensions
+```
+
+```{r}
+# read metadata into R (data separated by commas)
+### tDEpkdmice.meta <- read.delim(file.choose(), sep=",", row.names = 1)
+
+# remove unnecessary columns from metadata (all columns except Genotype (col. 14))
+### tDEpkdmice.metarevised <- DEpkdmice.meta["Genotype"]
+```
+
+
+In the interest of removing the double mutant from the raw counts, the preceding code was nulled and the following code was run. 
+
+### Load Packages
+```{r}
+#library("DESeq2")
+```
+
+### Load and Convert Data
+```{r}
+# read raw counts tabular data into R {fixed_raw_counts.txt}
+#DEpkdmice <- read.delim(file.choose())
+
+# convert raw counts data frame into matrix {fixed_raw_counts.txt}
+#DEpkdmice.matrix <- as.matrix(read.delim(file.choose(),row.names="GeneID"))
+
+# remove unnecessary columns from data matrix (col. 1-3, 10-12)
+#DEpkdmice.matrix <- DEpkdmice.matrix[,c(4:9)]
+
+# convert columns from character class to numeric class
+#DEpkdmice.matrix <- apply(as.matrix(DEpkdmice.matrix),2,as.numeric)
+```
+
+## Remove Rows With All Zero Values
+```{r}
+# remove columns with constant/zero column in order to rescale to unit variance
+#DEpkdmice.matrix.zerovariance <- DEpkdmice.matrix[which(apply(DEpkdmice.matrix, 1, var) != 0),]
+```
+
+NOTE: At this point, the data matrix does not have titles for the row names (as in, there are no gene names). The following code will correct this error.
+
+```{r}
+# import raw counts again but without the row.names argument {fixed_raw_counts.txt}
+#DEpkdmice.numero <- read.delim(file.choose())
+
+# save the gene ids to a vector
+#GeneID <- DEpkdmice.numero$GeneID
+
+# add rownames back to numeric object
+#rownames(DEpkdmice.matrix) <- GeneID
+```
+
+### Load and Convert Metadata
+```{r}
+# read metadata into R (data separated by commas) {SraRunTable.txt}
+#DEpkdmice.meta <- read.csv(file.choose(), row.names=1)
+
+# remove double mutant rows from metadata (row. 7:9) - MUST BE DONE BEFORE COLUMNS
+#DEpkdmice.meta <- DEpkdmice.meta[c(1:6),]
+
+# remove unnecessary columns from metadata (all columns except Genotype (col. 14))
+#DEpkdmice.meta <- DEpkdmice.meta["Genotype"]
+```
+
+### Initiate DESeq2 Package
+```{r}
+#DEpkdmice.data <- DESeqDataSetFromMatrix(countData = DEpkdmice.matrix,
+                                        # colData = DEpkdmice.meta,
+                                        # design = ~ Genotype)
+```
+
+```{r}
+#DEpkdmice.dds <- DESeq(DEpkdmice.data)
+#resultsNames(DEpkdmice.dds)
+```
+
+```{r}
+#DEpkdmice_res1 <- results(DEpkdmice.dds, name="Genotype_Wild.type_vs_Pkd2fl.fl.Pax8rtTA.TetO.cre")
+```
+
+
+
+
+### Error Trouble Shooting in Converting Character to Matrix & Keeing Row Names
+```{r}
+### DEpkdmice.matrix <- as.data.frame(lapply(DEpkdmice.matrix, function(DEpkdmice.matrix ))
+### DEpkdmice.matrix <- DEpkdmice.matrix[ , which(apply(DEpkdmice.matrix, 2, var) >= 0)]
+### DEpkdmice.matrix <- apply(DEpkdmice.matrix,2,as.numeric,rownames.force=FALSE)
+
+### DEpkdmice.matrix <- apply(as.matrix(DEpkdmice.matrix),2,as.numeric)
+# preceding code line makes the columns numeric values, but does not keep the row names
+
+### DEpkdmice.matrix <- apply(as.matrix(DEpkdmice.matrix),1,as.numeric,keep.rownames=TRUE)
+### DEpkdmice.matrix <- apply(as.matrix(DEpkdmice.matrix[,c(4:9)]),2, as.numeric)
+
+### DEpkdmice <- read.delim(file.choose())
+### DEpkdmice.matrix <- apply(as.matrix(DEpkdmice.matrix),2,as.numeric)
+# NAs introduced by coercionNAs introduced by coercionNAs introduced by coercion
+
+### DEpkdmice <- read.delim(file.choose())
+### DEpkdmice.matrix <- data.matrix(read.delim(file.choose(),row.names="GeneID"))
+### DEpkdmice.matrix <- apply(as.matrix(DEpkdmice.matrix,2,as.numeric),"==")
+### DEpkdmice.matrix <- DEpkdmice.matrix[,c(4:9)]
+
+### DEpkdmice <- read.delim(file.choose())
+### DEpkdmice.matrix <- data.matrix(DEpkdmice)
+### DEpkdmice.matrix <- DEpkdmice.matrix[,c(4:9)]
+```
+
+### Error Trouble Shooting in Removing Rows with All Zero Values
+```{r}
+#DEpkdmice.matrix.zerovariance <- DEpkdmice.matrix[ , which(apply(DEpkdmice.matrix, 1, var) != 0)]
+# Error in DEpkdmice.matrix[, which(apply(DEpkdmice.matrix, 1, var) != 0)] : 
+  # subscript out of bounds
+# It means you're trying to get something, say a column or row, that doesn't exist. For example, say your table has 10 rows and your function tries to call for row 15.
+
+#DEpkdmice.matrix.zerovariance <- DEpkdmice.matrix[ , which(apply(DEpkdmice.matrix, var) != 0)]
+# Error in h(simpleError(msg, call)) : error in evaluating the argument 'x' in selecting a method for function 'which': argument "FUN" is missing, with no default
+
+#DEpkdmice.matrix.zerovariance <- DEpkdmice.matrix[which(apply(DEpkdmice.matrix, 1, var) != 0),]
+```
+
+
+### Run Kasi's Code
+
+# Intro
+
+# Data wrangling for Deseq2 Input
+read in the raw counts
+```{r}
+pkdmice <- read.delim(file.choose(), row.names="GeneID")
+```
+change raw counts into matrix
+```{r}
+pkdcounts <- as.matrix(pkdmice)
+```
+remove columns 2:4 as the are numeric columns and also remove the double mutant group
+```{r}
+pkdcts_small <- pkdcounts[,c(4:9)]
+```
+read in metadata
+```{r}
+pkdmeta <- read.csv(file.choose(), row.names=1) #SRAtable
+```
+keep only the wt and pc2 mutant groups (rows 1 through 6)
+```{r}
+pkdmeta <- pkdmeta[c(1:6),]
+```
+then keep only the Genotype column the use factor function on genotype
+```{r}
+pkdmeta <- pkdmeta["Genotype"]
+pkdmeta$Genotype <- factor(pkdmeta$Genotype)
+```
+check the class of pkdmeta
+```{r}
+class(pkdmeta) #data.frame
+```
+check class of columns - checking the first column
+```{r}
+class(pkdcts_small[,1])
+```
+make columns numeric
+```{r}
+pkdcts_small_numeric <- apply(pkdcts_small,2,as.numeric)
+```
+double check class of columns
+```{r}
+class(pkdcts_small_numeric[,1])
+```
+get names from raw file of raw counts
+```{r}
+#import raw counts again but without the row.names argument
+pkdmice123 <- read.delim(file.choose())
+#save the gene ids to a vector
+GeneID <- pkdmice123$GeneID
+```
+insert rownames back into the numeric version of counts data called pkdcts_small_numeric
+```{r}
+rownames(pkdcts_small_numeric) <- GeneID
+```
+Run deseq analysis of data
+```{r}
+library(DESeq2)
+pkd_small_dds <- DESeqDataSetFromMatrix(countData = pkdcts_small_numeric,
+                              colData = pkdmeta,
+                              design = ~ Genotype)
+pkd_small_dds #view object
+```
+
+> user notes: pkd_small_dds is an object created from the DESeqDataSetFromMatrix function. it will be the input for view results perform default analysis then list the coefficients
+
+```{r}
+pkd_small_dds <- DESeq(pkd_small_dds) #performs the default analysis
+resultsNames(pkd_small_dds) # lists the coefficients
+```
+
+Results 1
+```{r}
+pkd_small_result1 <- results(pkd_small_dds, name="Genotype_Wild.type_vs_Pkd2fl.fl.Pax8rtTA.TetO.cre") #name is found when running the resultsNames function
+#pull all the things that are NOT NA
+pkd_small_result1 <- pkd_small_result1[!is.na(pkd_small_result1$log2FoldChange),]
+```
+
+Result 1 viz
+```{r}
+plotMA(pkd_small_result1, ylim=c(-2,2))
+```
+
+Results 2 - shrinks log fold changes association with condition (condition here is WT vs PKD)
+```{r}
+library(apeglm) #must open this pkg to run next code line without error
+# or to shrink log fold changes association with condition:
+pkd_small_result2 <- lfcShrink(pkd_small_dds, coef="Genotype_Wild.type_vs_Pkd2fl.fl.Pax8rtTA.TetO.cre", type="apeglm")
+```
+
+Result 2 viz
+```{r}
+plotMA(pkd_small_result2, ylim=c(-2,2))
+```
+
+Results 3
+
+> User notes: for signature search, lizzy said need to use the contrast argument instead of name argument in the deseq2's results function
+
+```{r}
+pkd_small_result3 <- results(pkd_small_dds, contrast=c("Genotype", "Wild type", "Pkd2fl/fl;Pax8rtTA;TetO-cre"))
+```
+
+Result 3 viz
+```{r}
+plotMA(pkd_small_result3, ylim=c(-2,2))
+```
+
+check class of result3
+```{r}
+class(pkd_small_result3)
+```
+
+convert deseq2 object into dataframe and save as csv file. This can all be done within 1 codeline
+```{r}
+write.csv(as.data.frame(pkd_small_result3), file = "PKDMouseWtMt_DESeq2_results.csv")
+```
+
+Apply variance stabilizing transformation using the dds object called pkd_small_dds as input (copied from Lizzy)
+```{r}
+pkd_small_dds_vsd <- vst(pkd_small_dds, blind = FALSE)
+```
+Using the transformed Deseq object called pkd_small_dds_vsd as input, plot PCA using PCA plot function from Deseq2 pkg
+```{r Mouse_DESeq2_PCA}
+pkdmouse_deseq2_pca <- DESeq2::plotPCA(pkd_small_dds_vsd, intgroup = "Genotype", )
+pkdmouse_deseq2_pca #view
+```
+ 
+# Data wrangling to get Deseq results as input for SignatureSearch
+* get the up and down changes then convert mouse genes to ortholog genes
+
+Class of pkd_small_result3?
+```{r}
+class(pkd_small_result3)
+```
+
+>User notes: Since pkd_small_result3 is currently a DeseqResults object, i think this needs to be converted to be as a dataframe
+convert pkd_small_result3 into a dataframe. it will also be easier to add ENSEMBL label to rownames within the same codeline. The function used here called rownames_to_column is from the tibble pkg
+
+first convert the deseqresults pkg into a matrix. Matrix is the proper input for the next step which is to remove the ESEMBL versions. We must remove the ENSEMBL versions ids b/c genes should never had versions before converting to human or putting through signaturesesarch. We use the newly made matrix output as the input for removing the ESEMBL versions. Next, we need to convert this modified matrix into a dataframe and also indicate rownames as ENSEMBL. This is needed to be done in order to convert from mouse to human genes. Then the last step is to remove rows that are only NA.
+
+
+
+```{r}
+library(tibble)
+#BiocManager::install("magrittr")
+library(magrittr)
+#first step
+pkd_small_results3_matrix <- as.matrix(pkd_small_result3)
+rownames(pkd_small_results3_matrix) <- sub("\\..*", "", rownames(pkd_small_results3_matrix))
+#second step
+pkd_small_result3_df <- pkd_small_results3_matrix %>% as.data.frame() %>% rownames_to_column(., "ENSEMBL")
+class(pkd_small_result3_df)
+#third step
+pkd_small_result3_df_na <- pkd_small_result3_df[!is.na(pkd_small_result3_df$log2FoldChange),]#remove rows that are only NA.
+class(pkd_small_result3_df_na)#data.frame
+```
+
+pull all the things that are not NA. Saved as seperate object in case need to compare this output to pkd_small_result3_df. 
+```{r}
+pkd_small_result3_df_na <- pkd_small_result3_df[!is.na(pkd_small_result3_df$log2FoldChange),]
+```
+double check class of the new output
+```{r}
+class(pkd_small_result3_df_na)#data.frame YAY!
+```
+
+Before subsetting, let's go ahead and remove version number for GeneID (the digits behind decimal point is the version of that geneID) that are present in pkd_small_result3_df_na. genes should never had versions before converting to human or putting through signaturesesarch. The output should remain as a dataframe. We also need to add a name for the rownames
+```{r}
+rownames(pkd_small_result3_df_na) <- sub("\\..*", "", rownames(pkd_small_result3_df_na))
+class(pkd_small_result3_df_na)#data.frame
+```
+
+subset pkd_small_result3_df_na to UP list based on L2FC >2 and padj <0.05. (The output should still be as a data.frame.) then remove NAs as necessary
+* note that 2 in pkd_small_result3_UP2 and pkd_small_result3_UP2_na stands for LFC>2
+```{r}
+pkd_small_result3_UP2 <- pkd_small_result3_df_na[pkd_small_result3_df_na$log2FoldChange > 2 & pkd_small_result3_df_na$padj < 0.05,] #subsetting 
+class(pkd_small_result3_UP2) #dataframe
+pkd_small_result3_UP2_na <- pkd_small_result3_UP2[!is.na(pkd_small_result3_UP2$log2FoldChange),] #removing NA items
+```
+
+> UserNotes: subsetting pkd_small_result3_df_na based on L2FC >2, padj<0.05 resulted in 13 genes.going to make another list subsetting for L2FC >1.5 to see how many genes we got with that. 
+Now, subset pkd_small_result3_df_na to UP list based on L2FC >1.5 and padj <0.05. (The output should still be as a data.frame.) then remove NAs as necessary
+* note that 1.5 in pkd_small_result3_UP1.5 and pkd_small_result3_UP1.5_na stands for LFC>1.5
+
+```{r}
+pkd_small_result3_UP1.5 <- pkd_small_result3_df_na[pkd_small_result3_df_na$log2FoldChange > 1.5 & pkd_small_result3_df_na$padj < 0.05,] #subsetting
+class(pkd_small_result3_UP1.5) #dataframe
+pkd_small_result3_UP1.5_na <- pkd_small_result3_UP1.5[!is.na(pkd_small_result3_UP1.5$log2FoldChange),] #removing NA items
+```
+
+> UserNotes: subsetting pkd_small_result3_UP1.5_na based on L2FC >1.5, padj<0.05 resulted in 26 genes.
+subset pkd_small_result3_df_na to DOWN list based on L2FC < -2 and padj <0.05. (The output should still be as a data.frame.) then remove NAs as necessary
+* note that 2 in pkd_small_result3_UP2 and pkd_small_result3_UP2_na stands for LFC<-2. REMEMBER: to change to less than sign b/c this is the down list
+
+```{r}
+pkd_small_result3_DOWN2 <- pkd_small_result3_df_na[pkd_small_result3_df_na$log2FoldChange < -2 & pkd_small_result3_df_na$padj < 0.05,] #subsetting 
+class(pkd_small_result3_DOWN2) #dataframe
+pkd_small_result3_DOWN2_na <- pkd_small_result3_DOWN2[!is.na(pkd_small_result3_DOWN2$log2FoldChange),] #removing NA items
+```
+ 
+ 
+> UserNotes: subsetting pkd_small_result3_df_na based on L2FC <-2, padj<0.05 resulted in 24 genes.going to make another list subsetting for L2FC <-1.5 to see how many genes we got with that. 
+ 
+ subset pkd_small_result3_df_na to DOWN list based on L2FC < -2 and padj <0.05. (The output should still be as a data.frame.) then remove NAs as necessary
+* note that 1.5 in pkd_small_result3_DOWN1.5 and pkd_small_result3_DOWN1.5_na stands for LFC<-1.5. REMEMBER: to change to less than sign b/c this is the down list
+```{r}
+pkd_small_result3_DOWN1.5 <- pkd_small_result3_df_na[pkd_small_result3_df_na$log2FoldChange > -1.5 & pkd_small_result3_df_na$padj < 0.05,] #subsetting 
+class(pkd_small_result3_DOWN1.5) #dataframe
+pkd_small_result3_DOWN1.5_na <- pkd_small_result3_DOWN1.5[!is.na(pkd_small_result3_DOWN1.5$log2FoldChange),] #removing NA items
+```
+ 
+# Data wrangling Up and Down list - converting mouse to human ortholog
+
+```{r}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+BiocManager::install("projectR")
+```
+
+```{r}
+install.packages("gprofiler2")
+```
+
+```{r}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+BiocManager::install("EnsDb.Hsapiens.v86")
+```
+
+```{r}
+library(projectR)
+library(ggplot2)
+library(DESeq2)
+library(gplots)
+library(dplyr)
+
+library(devtools)
+library(ggbiplot)
+library(biomaRt)
+library(tidyr)
+library(ggalluvial)
+library(ggrepel)
+library(gprofiler2)
+
+library(EnsDb.Hsapiens.v86)
+
+library(viridis)
+library(reshape2)
+```
+
+```{r}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+BiocManager::install("AnnotationDbi")
+
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+BiocManager::install("org.Mm.eg.db")
+```
+
+```{r}
+library(AnnotationDbi)
+library(tibble)
+library(biomaRt)
+library(org.Mm.eg.db)
+```
+
+**Mouse Gene ID Conversion**  
+```{r Mouse_ID_Conversion}
+#preparing outputs for conversion
+#pkd_small_dds_vsd_matrix <- assay(pkd_small_dds_vsd)
+
+# if the object for the preceding code line is not a vsd/vst object (i.e., the object is pkd_small_result3), then the following error is issued: Error in (function (classes, fdef, mtable) : unable to find an inherited method for function 'assay' for signature '"DESeqResults", "missing"' ((pkd_small_result3_matrix <- assay(pkd_small_result3)))
+
+
+#rownames(pkd_small_dds_vsd_matrix) <- sub("\\..*", "", rownames(pkd_small_dds_vsd_matrix))
+#pkd_small_result4_matrix <- pkd_small_dds_vsd_matrix %>% as.data.frame() %>% #rownames_to_column(., "ENSEMBL")
+#write.csv(file.choose(), file= "New_Mouse_Metadata")
+```
+
+**AnnotationDbi for Mouse Symbols**  
+```{r Mouse_Annotation, message=FALSE}
+#annotation
+#retrieve conversion info from one ID type to another
+#REPLACE test_mouse to mouse_anno
+#mouse_anno <- AnnotationDbi::select(org.Mm.eg.db, keys = rownames(pkd_small_dds_vsd_matrix), columns = c("SYMBOL","GO"),keytype = "ENSEMBL")
+
+# if the object for the preceding code line is the vsd/vst object matrix originally made from the vsd/vst object, then the following error is issued: Error in .testForValidKeys(x, keys, keytype, fks) : 'keys' must be a character vector
+
+# advice from stackoverflow.com/questions/25321751/error-while-mapping-symbols-to-entrezid is to use as.character to manually convert the factors to strings/characters
+#pkd_small_dds_vsd_matrix_character <- as.character()
+```
+mouse_anno <- AnnotationDbi::select(org.Mm.eg.db, keys = rownames(pkd_small_dds_vsd_matrix), columns = c("SRR11680775", "SRR11680776", "SRR11680777", "SRR11680778", "SRR11680779", "SRR11680780"),keytype = "ENSEMBL")
+
+This code results in the following: 
+Error in .testForValidCols(x, cols) : Invalid columns: SRR11680775,SRR11680776,SRR11680777,SRR11680778,SRR11680779,SRR11680780. Please use the columns method to see a listing of valid arguments.
+
+I am just kidding. I am going to run the above code starting from **Mouse Gene ID Conversion** again with the appropriate DESeq Results object converted to vsd. 
+```{r}
+#pkd_small_result3_vsd <- vst(pkd_small_result3, blind = FALSE)
+# Error in (function (classes, fdef, mtable) : unable to find an inherited method for function 'sizeFactors' for signature '"DESeqResults"'
+
+#pkd_small_result3_vsd_matrix <- assay(pkd_small_result3_vsd)
+#rownames(pkd_small_result3_vsd_matrix) <- sub("\\..*", "", rownames(pkd_small_result3_vsd_matrix))
+#pkd_small_result4_vsd_matrix <- pkd_small_result3_vsd_matrix %>% as.data.frame() %>% rownames_to_column(., "ENSEMBL")
+#write.csv(file.choose(), file= "New_Mouse_Metadata")
+```
+
+I am going to check the class of my inputs.
+```{r}
+class(pkd_small_result3) #DESeqResults attr(, "package") #DESeq2
+class(pkd_small_dds_vsd) #DESeqTransform attr(, "package") #DESeq2
+```
+
+It may be the case where these errors have to do with the normalization or lack thereof. The sizeFactors vector assigns to each column of the count matrix a value, the size factor, such that count values in the columns can be brought to a common scale by dividing by the corresponding size factor (as performed by counts(dds, normalized=TRUE)). 
+
+I am going to try to run this original code again and converting the matrix into a character. 
+```{r}
+#pkd_small_dds_vsd_matrix <- assay(pkd_small_dds_vsd)
+#rownames(pkd_small_dds_vsd_matrix) <- sub("\\..*", "", rownames(pkd_small_dds_vsd_matrix))
+#pkd_small_result4_vsd_matrix <- pkd_small_dds_vsd_matrix %>% as.data.frame() %>% rownames_to_column(., "ENSEMBL")
+#write.csv(file.choose(), file= "New_Mouse_Metadata")
+
+#pkd_small_dds_vsd_matrix_character <- as.character(pkd_small_dds_vsd_matrix)
+#mouse_anno <- AnnotationDbi::select(org.Mm.eg.db, keys = rownames(pkd_small_dds_vsd_matrix_character), columns = c("SYMBOL", "GO"),keytype = "ENSEMBL")
+```
+Even in converting pkd_small_dds_vsd_matrix into a character (confirmed in environment), the same error is provided: Error in .testForValidKeys(x, keys, keytype, fks) : 'keys' must be a character vector.
+
+Actually, removing the space between "SYMBOL" and "GO" appeared to make the code run, but I have no idea if the output is what we want to see. I will copy all of Lizzy's code again beneath this line so what should be run is explicitly "clear" in this dirty markdown. 
+```{r Mouse_Annotation, message=FALSE}
+#preparing outputs for conversion
+rownames(pkd_small_results3_matrix) <- sub("\\..*", "", rownames(pkd_small_results3_matrix))
+pkd_small_result4_matrix <- pkd_small_results3_matrix %>% as.data.frame() %>% rownames_to_column(., "ENSEMBL")
+# file.choose() = metadata
+write.csv(file.choose(), file= "New_Mouse_Metadata")
+#retrieve conversion info from one ID type to another
+#REPLACE test_mouse to mouse_anno
+mouse_anno <- AnnotationDbi::select(org.Mm.eg.db, keys = rownames(pkd_small_results3_matrix), columns = c("SYMBOL"),keytype = "ENSEMBL")
+```
+output: 'select()' returned 1:many mapping between keys and columns
+
+The "GO" subcategory was deemed unnecessary and removed from further analysis. This did not affect any of the further analyses at this point of time.
+```{r Mouse_Annotation, message=FALSE}
+#determine indices for non-NA genes
+mousenon_na_symbols <- which(is.na(mouse_anno$SYMBOL) == FALSE)
+#return only the genes with annotations using indices
+mouse_anno <- mouse_anno[mousenon_na_symbols, ]
+#determine indices for non-duplicated genes
+mouseno_dups_symbols <- which(duplicated(mouse_anno$SYMBOL) == FALSE)
+#return only non-dup genes using indices
+mouse_anno <- mouse_anno[mouseno_dups_symbols, ]
+#add symbols to normalized mouse data
+mouse_symbol <- inner_join(mouse_anno, pkd_small_result4_matrix, by = "ENSEMBL")
+#has GO annotation as well as the other gene ID info
+mouse_symbol_GO <- column_to_rownames(mouse_symbol, var = "SYMBOL")
+#removing annotations, symbols for row names, format for analysis
+mouse_symbol <- mouse_symbol_GO[,c(1:7)]
+```
+
+**Convert from mouse to human orthologous symbols**  
+To be able to compare gene expression data from mouse to human, must convert first to orthologous genes
+
+```{r Conversion_Function}
+## Basic function to convert mouse to human gene names
+convertMouseGeneList <- function(x){
+require("biomaRt")
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+mouse = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+genesV2 = getLDS(attributes = c("mgi_symbol"), filters = "mgi_symbol", values = x , mart = mouse, attributesL = c("hgnc_symbol"), martL = human, uniqueRows=T)
+return(genesV2)
+}
+```
+
+```{r Mouse_Orthologs}
+#Use convertMouseGeneList to convert to human genes
+mouse_to_human_genes <- convertMouseGeneList(mouse_anno$SYMBOL)
+conv_mouse <- mouse_symbol %>% rownames_to_column(., var = "MGI.symbol") %>% left_join(., mouse_to_human_genes, by = "MGI.symbol")
+#determine non-NA genes
+non_na_mouse <- which(is.na(conv_mouse$HGNC.symbol) == FALSE)
+#return only the genes with annotations using indices
+conv_mouse <- conv_mouse[non_na_mouse, ]
+#determine indices for non-duplicated genes
+no_dups_mouse <- which(duplicated(conv_mouse$HGNC.symbol) == FALSE)
+#return only non-dup genes using indices
+conv_mouse <- conv_mouse[no_dups_mouse, ]
+rownames(conv_mouse) <- NULL 
+conv_mouse <- conv_mouse %>% as.data.frame() %>% column_to_rownames(., var = "HGNC.symbol") 
+conv_mouse <- conv_mouse[,c(2:8)]
+```

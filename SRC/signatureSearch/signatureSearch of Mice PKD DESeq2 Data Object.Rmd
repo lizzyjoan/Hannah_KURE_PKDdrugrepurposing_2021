@@ -1,0 +1,550 @@
+---
+title: "signatureSearch of Mice PKD DESeq2 Data Object"
+author: "Hannah Cleary"
+date: "7/9/2021"
+output: 
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Purpose
+
+### Section Outline
+
+* Prep
+  + Load Packages
+  + Load in DESeq2 Results
+  + Locate Up- and Down-Regulated Genes
+
+## Prep
+
+### Load Packages
+```{r}
+library(signatureSearch)
+library(ggplot2)
+library(ExperimentHub); library(rhdf5)
+library(ensembldb)
+library(EnsDb.Hsapiens.v75)
+library(AnnotationDbi)
+```
+
+```{r install packages, include=FALSE}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+BiocManager::install("EnsDb.Hsapiens.v75")
+```
+
+```{r}
+# reference database
+eh <- ExperimentHub()
+cmap <- eh[["EH3223"]]; cmap_expr <- eh[["EH3224"]]
+```
+
+### Load in DESeq2 Results
+```{r}
+# DESeq2 results
+human_pkd_small_result3_DOWN1.5 <- read.csv("~/Documents/KURE_2021_Hannah/RESULTS/Intermittent CSV Files/conv_pkd_small_result3_DOWN1.5.csv", header = TRUE, row.names = 1)
+human_pkd_small_result3_DOWN2 <- read.csv("~/Documents/KURE_2021_Hannah/RESULTS/Intermittent CSV Files/conv_pkd_small_result3_DOWN2.csv", header = TRUE, row.names = 1)
+human_pkd_small_result3_UP1.5 <- read.csv("~/Documents/KURE_2021_Hannah/RESULTS/Intermittent CSV Files/conv_pkd_small_result3_UP1.5.csv", header = TRUE, row.names = 1)
+human_pkd_small_result3_UP2 <- read.csv("~/Documents/KURE_2021_Hannah/RESULTS/Intermittent CSV Files/conv_pkd_small_result3_UP2.csv", header = TRUE, row.names = 1)
+```
+
+### Edit Data
+```{r}
+# LFC non NA genes
+#human_pkd_small_result3_DOWN1.5_LFC <- human_pkd_small_result3_DOWN1.5[!is.na(human_pkd_small_result3_DOWN1.5$log2FoldChange)]
+#human_pkd_small_result3_DOWN2_LFC <- human_pkd_small_result3_DOWN2[!is.na(,human_pkd_small_result3_DOWN2$log2FoldChange)]
+#human_pkd_small_result3_UP1.5_LFC <- human_pkd_small_result3_UP1.5[!is.na(,human_pkd_small_result3_UP1.5$log2FoldChange)]
+#human_pkd_small_result3_UP2_LFC <- human_pkd_small_result3_UP2[!is.na(,human_pkd_small_result3_UP2$log2FoldChange)]
+```
+The code chunk immediately following ### Edit Data and # LFC non NA genes was not run alongside the other code because the NA values were previously removed from the log2FoldChange columns. These NA values were removed during the completion of the DESeq2 package. However, if the code is run, an error message is thrown in which: Error in `[.data.frame`(human_pkd_small_result3_DOWN1.5, !is.na(human_pkd_small_result3_DOWN1.5$log2FoldChange)) : undefined columns selected . 
+
+```{r}
+# remove specific transcript .X numbers
+#rownames(human_pkd_small_result3_DOWN1.5) <- sub("\\..*", "", rownames(human_pkd_small_result3_DOWN1.5))
+#rownames(human_pkd_small_result3_DOWN2) <- sub("\\..*", "", rownames(human_pkd_small_result3_DOWN2))
+#rownames(human_pkd_small_result3_UP1.5) <- sub("\\..*", "", rownames(human_pkd_small_result3_UP1.5))
+#rownames(human_pkd_small_result3_UP2) <- sub("\\..*", "", rownames(human_pkd_small_result3_UP2))
+```
+I don't think the preceding code chunk actually edited the data frame. I believe that the intended edit had already been performed in the DESeq2 package as above. However, the code will run without being thrown any errors. 
+
+### Locate Up- and Down-Regulated Genes
+I believe the lines in Lizzy's code related to this heading (50-78) have already been completed in the DESeq2 package. Therefore, these lines were excluded from analysis until further confirmation. https://github.com/lizzyjoan/PreliminaryR21/blob/main/Cortes_SignatureSearch.Rmd
+
+### CMAP
+Lamb et al. (2006) introduced the gene expression-based search method known as Connectivity Map (CMap) where a GES database is searched with a query GES for similar entries (Lamb et al. 2006). Specifically, the GESS method from Lamb et al. (2006), here termed as CMAP, uses as query the two label sets of the most up- and down-regulated genes from a genome-wide expression experiment, while the reference database is composed of rank transformed expression profiles (e.g. ranks of LFC or z-scores). The actual GESS algorithm is based on a vectorized rank difference calculation. The resulting Connectivity Score expresses to what degree the query up/down gene sets are enriched on the top and bottom of the database entries, respectively. The search results are a list of perturbagens such as drugs that induce similar or opposing GESs as the query. Similar GESs suggest similar physiological effects of the corresponding perturbagens.    
+Function qSig() builds an object to store the query signature, reference database and GESS method used for GESS methods
+```{r}
+qsig_cmap_human_pkd_small_result3_1.5 <- qSig(query = list(upset=as.character(human_pkd_small_result3_UP1.5), downset=as.character(human_pkd_small_result3_DOWN1.5)),
+                                              gess_method="CMAP", refdb="lincs")
+qsig_cmap_human_pkd_small_result3_2 <- qSig(query = list(upset=as.character(human_pkd_small_result3_UP2), downset=as.character(human_pkd_small_result3_DOWN2)),
+                                              gess_method="CMAP", refdb="lincs")
+```
+In running the above code, the following error is projected: 
+Error in qSig(query = list(upset = as.character(human_pkd_small_result3_UP1.5), : Both upset and downset share zero identifiers with reference database, please make sure that at least one share identifiers!
+
+I am going to try to make a new reference database, but I don't know exactly if that is possible. I am copying the code directly from the code I used in the signatureSearch vignette instead of explicitly using Lizzy's code blindly.
+```{r}
+# reference database
+eh <- ExperimentHub()
+cmap <- eh[["EH3223"]]; cmap_expr <- eh[["EH3224"]]
+lincs <- eh[["EH3226"]]; lincs_expr <- eh[["EH3227"]]
+h5ls(lincs)
+```
+
+I am going to repeat the above CMAP code in order to see if blindly running Lizzy's code was the source of the error above. 
+```{r}
+qsig_cmap_human_pkd_small_result3_1.5 <- qSig(query = list(upset=as.character(human_pkd_small_result3_UP1.5), downset=as.character(human_pkd_small_result3_DOWN1.5)),
+                                              gess_method="CMAP", refdb="lincs")
+qsig_cmap_human_pkd_small_result3_2 <- qSig(query = list(upset=as.character(human_pkd_small_result3_UP2), downset=as.character(human_pkd_small_result3_DOWN2)),
+                                              gess_method="CMAP", refdb="lincs")
+```
+And the same error was projected:
+Error in qSig(query = list(upset = as.character(human_pkd_small_result3_UP1.5), : Both upset and downset share zero identifiers with reference database, please make sure that at least one share identifiers!
+
+Alright, I am assuming that the problem may be in the code I omitted in thinking that everything had already been subsetted in DESeq2. I am going to run through that code really quick and see if the error is fixed. 
+
+### Locate Up- and Down-Regulated Genes
+I looked at the DESeq2 code and this code does in fact qualify the log2FoldChange and padj values. For example: 
+pkd_small_result3_DOWN1.5 <- pkd_small_result3_df_na[pkd_small_result3_df_na$log2FoldChange < -1.5 & pkd_small_result3_df_na$padj < 0.05,] #subsetting 
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- rownames(human_pkd_small_result3_DOWN1.5)
+human_pkd_small_result3_DOWN2_list <- rownames(human_pkd_small_result3_DOWN2)
+human_pkd_small_result3_UP1.5_list <- rownames(human_pkd_small_result3_UP1.5)
+human_pkd_small_result3_UP2_list <- rownames(human_pkd_small_result3_UP2)
+```
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="GENEID", multiVals="first")
+```
+After running the preceding code, the feedback from R: Unable to map 114 of 114 requested IDs. 
+
+```{r}
+human_pkd_small_result3_DOWN2_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN2_list, column="ENTREZID", keytype="GENEID", multiVals="first")
+human_pkd_small_result3_UP1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_UP1.5_list, column="ENTREZID", keytype="GENEID", multiVals="first")
+human_pkd_small_result3_UP2_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_UP2_list, column="ENTREZID", keytype="GENEID", multiVals="first")
+```
+After running the preceding code, the feedback from R: Unable to map 62 of 62 requested IDs.Unable to map 46 of 46 requested IDs.Unable to map 24 of 24 requested IDs.
+
+In explaining my situation to Lizzy, she suggested running the following code. She said it may be the case where my entire dataframe is being input for my keys. Therefore, she said to try to make a list of only the genes in human_pkd_small_result3_UP1.5.
+```{r}
+gene_list_DOWN1.5 <- rownames(human_pkd_small_result3_DOWN1.5)
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = gene_list_DOWN1.5, column="ENTREZID", keytype="GENEID",multiVals="first")
+```
+Unable to map 114 of 114 requested IDs.
+
+Alright, I think now that I didn't send Lizzy all of my code and because I didn't send her all of my code she wasn't able to follow what I had done previously. Essentially, she told me to do something that had already been done in my preceding code. 
+
+I am going to run another suggestion from Lizzy.
+```{r}
+head(human_pkd_small_result3_DOWN1.5)
+```
+
+I am still following Lizzy's instructions.
+```{r}
+gene_list_DOWN1.5 <- rownames(human_pkd_small_result3_DOWN1.5)
+gene_list_DOWN1.5
+```
+
+I am anticipating Lizzy's instruction.
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = gene_list_DOWN1.5, column="ENTREZID", keytype="GENEID",multiVals="first")
+human_pkd_small_result3_DOWN1.5_list
+```
+
+Okay. Lizzy said that there may just not be any matches since there are only 114 genes. The following was her exact message: 
+I wonder if it's just because there really aren't matches, since it's only 114 genes. Looking at Jen's:
+## Warning: Unable to map 3156 of 4906 requested IDs.
+And mine
+## Warning: Unable to map 138 of 252 requested IDs.
+We had a lot that didn't map. (Jen used much more data than me, she used GTEX, and I used an experiment with 58 samples. And you guys just have a few samples, right?)
+Just to see if it's an issue of those 114 happen to not map, perhaps try lowering the LFC and p-adj value cutoffs and try that. Like look at what you get for just a 0.5 Log2fold change and like 0.5 or 0.01 for padj.
+2:52
+I'm just wondering if there's something wrong or if there really aren't matches
+
+I am going to try to subset a larger group of genes now and see if the mapping works.
+```{r}
+pkd_small_result3_UP0.5 <- pkd_small_result3_df_na[pkd_small_result3_df_na$log2FoldChange > 0.5 & pkd_small_result3_df_na$padj < 0.05,] #subsetting 
+class(pkd_small_result3_UP0.5) #dataframe
+pkd_small_result3_UP0.5_na <- pkd_small_result3_UP0.5[!is.na(pkd_small_result3_UP0.5$log2FoldChange),] #removing NA items
+
+## Basic function to convert mouse to human gene names
+convertMouseGeneList <- function(x){
+require("biomaRt")
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+mouse = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+genesV2 = getLDS(attributes = c("mgi_symbol"), filters = "mgi_symbol", values = x , mart = mouse, attributesL = c("hgnc_symbol"), martL = human, uniqueRows=T)
+return(genesV2)
+}
+
+#annotation
+library(org.Mm.eg.db)
+#retrieve conversion info from one ID type to another
+#REPLACE test_mouse to mouse_anno
+mouse_anno <- AnnotationDbi::select(org.Mm.eg.db, keys = rownames(pkd_small_results3_matrix), columns = c("SYMBOL", "GO"),keytype = "ENSEMBL")
+#determine indices for non-NA genes
+mousenon_na_symbols <- which(is.na(mouse_anno$SYMBOL) == FALSE)
+#return only the genes with annotations using indices
+mouse_anno <- mouse_anno[mousenon_na_symbols, ]
+#determine indices for non-duplicated genes
+mouseno_dups_symbols <- which(duplicated(mouse_anno$SYMBOL) == FALSE)
+#return only non-dup genes using indices
+mouse_anno <- mouse_anno[mouseno_dups_symbols, ]
+#add symbols to mouse data
+mouse_symbol_UP0.5 <- dplyr::inner_join(mouse_anno, pkd_small_result3_UP0.5_na, by = "ENSEMBL")
+#has GO annotation as well as the other gene ID info
+mouse_symbol_GO_UP0.5 <- column_to_rownames(mouse_symbol_UP0.5, var = "SYMBOL")
+#removing annotations, symbols for row names, format for analysis
+###mouse_symbol <- mouse_symbol_GO[,c(5:20)]
+mouse_symbol_UP0.5 <- mouse_symbol_GO_UP0.5[,c(5:10)]
+
+#BiocManager::install("biomaRt")
+library(biomaRt)
+#Use convertMouseGeneList to convert to human genes
+mouse_to_human_genes <- convertMouseGeneList(mouse_anno$SYMBOL)
+conv_mouse_UP0.5 <- mouse_symbol_UP0.5 %>% rownames_to_column(., var = "MGI.symbol") %>% dplyr::left_join(., mouse_to_human_genes, by = "MGI.symbol")
+#determine non-NA genes
+non_na_mouse <- which(is.na(conv_mouse_UP0.5$HGNC.symbol) == FALSE)
+#return only the genes with annotations using indices
+conv_mouse_UP0.5 <- conv_mouse_UP0.5[non_na_mouse, ]
+#determine indices for non-duplicated genes
+no_dups_mouse <- which(duplicated(conv_mouse_UP0.5$HGNC.symbol) == FALSE)
+#return only non-dup genes using indices
+conv_mouse_UP0.5 <- conv_mouse_UP2[no_dups_mouse, ]
+rownames(conv_mouse_UP0.5) <- NULL 
+conv_mouse_UP0.5 <- conv_mouse_UP0.5 %>% as.data.frame() %>% column_to_rownames(., var = "HGNC.symbol") 
+conv_pkd_small_result3_UP0.5 <- conv_mouse_UP0.5[,c(2:7)]
+
+write.csv(conv_pkd_small_result3_UP0.5, 'conv_pkd_small_result3_UP0.5.csv')
+```
+I got thrown the following error after this line of code "conv_mouse_UP0.5 <- conv_mouse_UP0.5 %>% as.data.frame() %>% column_to_rownames(., var = "HGNC.symbol")": 
+Error: Can't find column `HGNC.symbol` in `.data`. Run `rlang::last_error()` to see where the error occurred.
+
+As a result, I decided to run through Kasi's entire R markdown again to make sure I didn't screw anything up in copying it over to this document. If an error is thrown, then we have a problem because I did not alter Kasi's code. Stay tuned to see if I can get this resolved. 
+
+Ah. So, Kasi's DESeq2 markdown was able to be run all the way through. I am going to try to run this above code, yet again. I am copying this code down below to make it easier to follow. I may try to separate the chunks of code and see if that helps. 
+```{r}
+pkd_small_result3_UP0.5 <- pkd_small_result3_df_na[pkd_small_result3_df_na$log2FoldChange > 0.5 & pkd_small_result3_df_na$padj < 0.05,] #subsetting 
+class(pkd_small_result3_UP0.5) #dataframe
+pkd_small_result3_UP0.5_na <- pkd_small_result3_UP0.5[!is.na(pkd_small_result3_UP0.5$log2FoldChange),] #removing NA items
+```
+
+```{r}
+## Basic function to convert mouse to human gene names
+convertMouseGeneList <- function(x){
+require("biomaRt")
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+mouse = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+genesV2 = getLDS(attributes = c("mgi_symbol"), filters = "mgi_symbol", values = x , mart = mouse, attributesL = c("hgnc_symbol"), martL = human, uniqueRows=T)
+return(genesV2)
+}
+```
+
+```{r}
+#annotation
+library(org.Mm.eg.db)
+#retrieve conversion info from one ID type to another
+#REPLACE test_mouse to mouse_anno
+mouse_anno <- AnnotationDbi::select(org.Mm.eg.db, keys = rownames(pkd_small_results3_matrix), columns = c("SYMBOL", "GO"),keytype = "ENSEMBL")
+#determine indices for non-NA genes
+mousenon_na_symbols <- which(is.na(mouse_anno$SYMBOL) == FALSE)
+#return only the genes with annotations using indices
+mouse_anno <- mouse_anno[mousenon_na_symbols, ]
+#determine indices for non-duplicated genes
+mouseno_dups_symbols <- which(duplicated(mouse_anno$SYMBOL) == FALSE)
+#return only non-dup genes using indices
+mouse_anno <- mouse_anno[mouseno_dups_symbols, ]
+#add symbols to mouse data
+mouse_symbol_UP0.5 <- dplyr::inner_join(mouse_anno, pkd_small_result3_UP0.5_na, by = "ENSEMBL")
+#has GO annotation as well as the other gene ID info
+mouse_symbol_GO_UP0.5 <- column_to_rownames(mouse_symbol_UP0.5, var = "SYMBOL")
+#removing annotations, symbols for row names, format for analysis
+###mouse_symbol <- mouse_symbol_GO[,c(5:20)]
+mouse_symbol_UP0.5 <- mouse_symbol_GO_UP0.5[,c(5:10)]
+```
+
+```{r}
+#BiocManager::install("biomaRt")
+library(biomaRt)
+#Use convertMouseGeneList to convert to human genes
+mouse_to_human_genes <- convertMouseGeneList(mouse_anno$SYMBOL)
+conv_mouse_UP0.5 <- mouse_symbol_UP0.5 %>% rownames_to_column(., var = "MGI.symbol") %>% dplyr::left_join(., mouse_to_human_genes, by = "MGI.symbol")
+#determine non-NA genes
+non_na_mouse <- which(is.na(conv_mouse_UP0.5$HGNC.symbol) == FALSE)
+#return only the genes with annotations using indices
+conv_mouse_UP0.5 <- conv_mouse_UP0.5[non_na_mouse, ]
+#determine indices for non-duplicated genes
+no_dups_mouse <- which(duplicated(conv_mouse_UP0.5$HGNC.symbol) == FALSE)
+#return only non-dup genes using indices
+conv_mouse_UP0.5 <- conv_mouse_UP2[no_dups_mouse, ]
+rownames(conv_mouse_UP0.5) <- NULL 
+conv_mouse_UP0.5 <- conv_mouse_UP0.5 %>% as.data.frame() %>% column_to_rownames(., var = "HGNC.symbol") 
+conv_pkd_small_result3_UP0.5 <- conv_mouse_UP0.5[,c(2:7)]
+```
+Alright, it makes no sense, but the same error was thrown. I don't understand. 
+conv_mouse_UP0.5 <- conv_mouse_UP0.5 %>% as.data.frame() %>% column_to_rownames(., var = "HGNC.symbol") 
+Error: Can't find column `HGNC.symbol` in `.data`. Run `rlang::last_error()` to see where the error occurred.
+
+I am going to try a different suggestion of Lizzy's really quickly. (You could also try changing GENEID to ENSEMBL.) If that does not work, however, then I will go back to the above code in trying to subset a larger list. I may have to do the subsetting in the DESeq2 document and then bring it over here as was done with the UP1.5, UP2, DOWN1.5, and DOWN2. 
+
+I am going to start again.
+```{r}
+# DESeq2 results
+human_pkd_small_result3_DOWN1.5 <- read.csv("~/Documents/KURE_2021_Hannah/RESULTS/Intermittent CSV Files/conv_pkd_small_result3_DOWN1.5.csv", header = TRUE, row.names = 1)
+human_pkd_small_result3_DOWN2 <- read.csv("~/Documents/KURE_2021_Hannah/RESULTS/Intermittent CSV Files/conv_pkd_small_result3_DOWN2.csv", header = TRUE, row.names = 1)
+human_pkd_small_result3_UP1.5 <- read.csv("~/Documents/KURE_2021_Hannah/RESULTS/Intermittent CSV Files/conv_pkd_small_result3_UP1.5.csv", header = TRUE, row.names = 1)
+human_pkd_small_result3_UP2 <- read.csv("~/Documents/KURE_2021_Hannah/RESULTS/Intermittent CSV Files/conv_pkd_small_result3_UP2.csv", header = TRUE, row.names = 1)
+
+# remove specific transcript .X numbers
+rownames(human_pkd_small_result3_DOWN1.5) <- sub("\\..*", "", rownames(human_pkd_small_result3_DOWN1.5))
+rownames(human_pkd_small_result3_DOWN2) <- sub("\\..*", "", rownames(human_pkd_small_result3_DOWN2))
+rownames(human_pkd_small_result3_UP1.5) <- sub("\\..*", "", rownames(human_pkd_small_result3_UP1.5))
+rownames(human_pkd_small_result3_UP2) <- sub("\\..*", "", rownames(human_pkd_small_result3_UP2))
+
+human_pkd_small_result3_DOWN1.5_list <- rownames(human_pkd_small_result3_DOWN1.5)
+human_pkd_small_result3_DOWN2_list <- rownames(human_pkd_small_result3_DOWN2)
+human_pkd_small_result3_UP1.5_list <- rownames(human_pkd_small_result3_UP1.5)
+human_pkd_small_result3_UP2_list <- rownames(human_pkd_small_result3_UP2)
+
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="ENSEMBL", multiVals="first")
+```
+Error in .select(x = x, keys = keys, columns = columns, keytype = keytype, : keytype ENSEMBL not available in the database. Use keytypes method to list all available keytypes.
+
+I am re-running the following code chunk to see if the preceding error will go away. 
+```{r}
+# reference database
+eh <- ExperimentHub()
+cmap <- eh[["EH3223"]]; cmap_expr <- eh[["EH3224"]]
+lincs <- eh[["EH3226"]]; lincs_expr <- eh[["EH3227"]]
+h5ls(lincs)
+```
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="ENSEMBL", multiVals="first")
+```
+SAME ERROR
+Error in .select(x = x, keys = keys, columns = columns, keytype = keytype, : keytype ENSEMBL not available in the database. Use keytypes method to list all available keytypes.
+
+I am going to try to continue changing the keytype. I have tried GENEID and ENSEBL. 
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="UNIPROT", multiVals="first")
+```
+SAME ERROR
+Error in .select(x = x, keys = keys, columns = columns, keytype = keytype, : keytype UNIPROT not available in the database. Use keytypes method to list all available keytypes.
+
+Alright, I am convinced that our parameters are too restrictive to map any genes. I am going to re-run DESeq2 with additional parameters that are not as extensive.
+
+Okay, I was able to re-run DESeq2 with a log2FoldChange up above 0.5. I am going to repeat the above steps with this csv from the very beginning.
+```{r}
+eh <- ExperimentHub()
+cmap <- eh[["EH3223"]]; cmap_expr <- eh[["EH3224"]]
+```
+
+```{r}
+# DESeq2 results
+human_pkd_small_result3_UP0.5 <- read.csv("~/Documents/KURE_2021_Hannah/RESULTS/Intermittent CSV Files/conv_pkd_small_result3_UP0.5.csv", header = TRUE, row.names = 1)
+```
+Actually, in trying to load this document, I have realized that there are no genes in the CSV file I created mere moments ago. I am going to investigate now. 
+
+I realized in going back through the DESeq2 code line by line that I had not changed each of the values and I was returning zero genes because of this error. I am going to try again.
+```{r}
+# DESeq2 results
+human_pkd_small_result3_UP0.5 <- read.csv("~/Documents/KURE_2021_Hannah/RESULTS/Intermittent CSV Files/conv_pkd_small_result3_UP0.5.csv", header = TRUE, row.names = 1)
+head(human_pkd_small_result3_UP0.5)
+
+rownames(human_pkd_small_result3_UP0.5) <- sub("\\..*", "", rownames(human_pkd_small_result3_UP0.5))
+head(human_pkd_small_result3_UP0.5)
+
+human_pkd_small_result3_UP0.5_list <- rownames(human_pkd_small_result3_UP0.5)
+
+human_pkd_small_result3_UP0.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_UP0.5_list, column="ENTREZID", keytype="GENEID", multiVals="first")
+str(EnsDb.Hsapiens.v75)
+names(human_pkd_small_result3_UP0.5_list)]
+keytypes(EnsDb.Hsapiens.v75)
+```
+Unable to map 365 of 365 requested IDs.
+
+Kasi suggested that I may need to change databases. We will run this code and then run the above with UP0.5 again.
+```{r}
+# reference database
+eh <- ExperimentHub()
+cmap <- eh[["EH3223"]]; cmap_expr <- eh[["EH3224"]]
+lincs <- eh[["EH3226"]]; lincs_expr <- eh[["EH3227"]]
+h5ls(lincs)
+```
+
+I am going to try to change the keytype and see if I can get some genes to map. 
+```{r}
+human_pkd_small_result3_DOWN1.5_list_1 <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="EXONID", multiVals="first")
+```
+Error in joinTwoTables(a = alreadyUsed, b = tab, mysql = mysql) : Table(s) gene, entrezgene can not be joined with tx2exon!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list_2 <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="EXONIDX", multiVals="first")
+```
+Error in .select(x = x, keys = keys, columns = columns, keytype = keytype, : keytype EXONIDX not available in the database. Use keytypes method to list all available keytypes.
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="EXONSEQEND", multiVals="first")
+```
+Error in .select(x = x, keys = keys, columns = columns, keytype = keytype, : keytype EXONSEQEND not available in the database. Use keytypes method to list all available keytypes.
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="EXONSEQSTART", multiVals="first")
+```
+Error in .select(x = x, keys = keys, columns = columns, keytype = keytype, : keytype EXONSEQSTART not available in the database. Use keytypes method to list all available keytypes.
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="GENEBIOTYPE", multiVals="first")
+```
+Unable to map 114 of 114 requested IDs.
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="GENEID", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="GENENAME", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="GENESEQEND", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="GENESEQSTART", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="INTERPROACCESSION", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="ISCIRCULAR", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="PROTDOMEND", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="PROTODOMSTART", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="PROTEINDOMAINID", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="PROTEINDOMAINSOURCE", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="PROTEINID", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="PROTEINSEQUENCE", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="SEQCOORDSYSTEM", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="SEQLENGTH", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="SEQNAME", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="SEQSTRAND", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="SYMBOL", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="TXBIOTYPE", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="TXCDSSEQEND", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="TXCDSSEQSTART", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="TXID", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="TXNAME", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="TXSEQEND", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="TXSEQSTART", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="UNIPROTDB", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="UNIPROTID", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+```{r}
+human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="UNIPROTMAPPINGTYPE", multiVals="first")
+```
+Error in .processFilterParam(keys, x) : 'filter' has to be an 'AnnotationFilter', a list of 'AnnotationFilter' object, an 'AnnotationFilterList' or a valid filter expression!
+
+I think it's a little suspicious that the keytypes started in the Es and did not include 'ENSEMBL'. I am going to do some further investigating to see if my list was really complete.
+
+Alright, I couldn't find any additional keytypes when I went looking, although I did not look that hard. Kasi suggested that the issue may be that there is not title above the column with the gene identifiers. I am going to try to look at Lizzy's file to determine if this is also the case for her, so stay tuned. Ah, yes. Well, Lizzy's column with the GENEID's does not have a title either and her code was able to work. I will try to map the genes with the log2FoldChange of UP0.5 now (with 365 observations) to GENEBIOTYPE and see if I am able to map anything. Although, I wonder that even if something is able to map if it is actually accurate.
+```{r}
+human_pkd_small_result3_UP0.5_list_1 <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_UP0.5_list, column="ENTREZID", keytype="GENEBIOTYPE", multiVals="first")
+```
+Unable to map 365 of 365 requested IDs.
+
+Actually, before even running the immediately preceeding code, I am wondering if I needed to name each one something else instead of overwriting the list in my code. Is this an issue? I will try re-running the original code and will rename each one of the human_pkd_small_result3_DOWN1.5_list <- mapIds(EnsDb.Hsapiens.v75, keys = human_pkd_small_result3_DOWN1.5_list, column="ENTREZID", keytype="", multiVals="first") lists and try again.
